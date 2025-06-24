@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Button, Form, Alert, Card } from 'react-bootstrap';
 
 export function MenuUpload() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -73,133 +74,89 @@ export function MenuUpload() {
 
   return (
     <div>
-      <h2 style={{ marginTop: 0, color: '#1f2937' }}>Menu Upload</h2>
-      <p style={{ color: '#6b7280', marginBottom: '32px' }}>
+      <h4 className="mb-1">Menu Upload</h4>
+      <p className="text-muted mb-4">
         Upload your restaurant menu as text or image. This will be used to help the AI understand your offerings.
       </p>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+      <div className="d-flex flex-column gap-4">
         {/* Text Input Section */}
-        <div style={{ padding: '24px', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
-          <h3 style={{ marginTop: 0, color: '#374151' }}>Enter Menu Text</h3>
-          <textarea
-            value={textContent}
-            onChange={handleTextChange}
-            placeholder="Enter your menu items here...
+        <Card>
+          <Card.Body>
+            <Card.Title>Enter Menu Text</Card.Title>
+            <Form>
+              <Form.Group className="mb-3">
+                <Form.Control
+                  as="textarea"
+                  rows={8}
+                  value={textContent}
+                  onChange={handleTextChange}
+                  placeholder="Enter your menu items here...
 
 Example:
 Cheeseburger - $8.99
 Fries - $3.99
 Drink - $2.99"
-            style={{
-              width: '100%',
-              padding: '12px',
-              border: '1px solid #d1d5db',
-              borderRadius: '6px',
-              fontFamily: 'inherit',
-              fontSize: '14px',
-              marginBottom: '16px',
-              resize: 'vertical'
-            }}
-            rows={8}
-          />
-          <button
-            onClick={uploadTextContent}
-            disabled={isUploading || !textContent.trim()}
-            style={{
-              padding: '12px 24px',
-              border: 'none',
-              backgroundColor: (isUploading || !textContent.trim()) ? '#9ca3af' : '#3b82f6',
-              color: 'white',
-              borderRadius: '6px',
-              cursor: (isUploading || !textContent.trim()) ? 'not-allowed' : 'pointer',
-              fontWeight: '500'
-            }}
-          >
-            {isUploading ? 'Uploading...' : 'Save Menu Text'}
-          </button>
-        </div>
+                />
+              </Form.Group>
+              <Button
+                onClick={uploadTextContent}
+                disabled={isUploading || !textContent.trim()}
+                variant="primary"
+              >
+                {isUploading ? 'Uploading...' : 'Save Menu Text'}
+              </Button>
+            </Form>
+          </Card.Body>
+        </Card>
 
-        <div style={{ textAlign: 'center', color: '#6b7280', fontWeight: '500', margin: '16px 0' }}>
-          OR
-        </div>
+        <div className="text-center text-muted fw-bold">OR</div>
 
         {/* File Upload Section */}
-        <div style={{ padding: '24px', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
-          <h3 style={{ marginTop: 0, color: '#374151' }}>Upload Menu File</h3>
-          <div style={{ marginBottom: '16px' }}>
-            <input
-              id="file-input"
-              type="file"
-              onChange={handleFileSelect}
-              accept=".txt,.png,.jpg,.jpeg,.pdf"
-              style={{ display: 'none' }}
-            />
-            <label 
-              htmlFor="file-input" 
-              style={{
-                display: 'inline-block',
-                padding: '12px 16px',
-                backgroundColor: '#f9fafb',
-                border: '1px solid #d1d5db',
-                borderRadius: '6px',
-                cursor: 'pointer'
-              }}
-            >
-              {selectedFile ? selectedFile.name : 'Choose file...'}
-            </label>
-          </div>
-          
-          <div style={{ marginBottom: '16px' }}>
-            <small style={{ color: '#6b7280' }}>
-              Supported: Text files (.txt) and Images (.png, .jpg, .jpeg)
-            </small>
-          </div>
-
-          <button
-            onClick={handleUpload}
-            disabled={isUploading || !selectedFile}
-            style={{
-              padding: '12px 24px',
-              border: 'none',
-              backgroundColor: (isUploading || !selectedFile) ? '#9ca3af' : '#3b82f6',
-              color: 'white',
-              borderRadius: '6px',
-              cursor: (isUploading || !selectedFile) ? 'not-allowed' : 'pointer',
-              fontWeight: '500'
-            }}
-          >
-            {isUploading ? 'Uploading...' : 'Upload File'}
-          </button>
-        </div>
+        <Card>
+          <Card.Body>
+            <Card.Title>Upload Menu File</Card.Title>
+            <Form>
+              <Form.Group className="mb-3">
+                <Form.Control
+                  id="file-input"
+                  type="file"
+                  onChange={handleFileSelect}
+                  accept=".txt,.png,.jpg,.jpeg,.pdf"
+                />
+                <Form.Text className="text-muted">
+                  Supported: Text files (.txt) and Images (.png, .jpg, .jpeg)
+                </Form.Text>
+              </Form.Group>
+              <Button
+                onClick={handleUpload}
+                disabled={isUploading || !selectedFile}
+                variant="primary"
+              >
+                {isUploading ? 'Uploading...' : 'Upload File'}
+              </Button>
+            </Form>
+          </Card.Body>
+        </Card>
       </div>
 
       {uploadMessage && (
-        <div style={{
-          padding: '16px',
-          borderRadius: '6px',
-          marginTop: '16px',
-          backgroundColor: uploadMessage.startsWith('✅') ? '#d1fae5' : '#fee2e2',
-          color: uploadMessage.startsWith('✅') ? '#065f46' : '#991b1b',
-          border: `1px solid ${uploadMessage.startsWith('✅') ? '#a7f3d0' : '#fca5a5'}`
-        }}>
+        <Alert 
+          variant={uploadMessage.startsWith('✅') ? 'success' : 'danger'}
+          className="mt-4"
+        >
           {uploadMessage}
-        </div>
+        </Alert>
       )}
 
-      <div style={{ 
-        marginTop: '32px', 
-        padding: '24px', 
-        backgroundColor: '#f9fafb', 
-        borderRadius: '8px' 
-      }}>
-        <h3 style={{ marginTop: 0, color: '#374151' }}>How it works:</h3>
-        <ul style={{ color: '#6b7280', margin: 0 }}>
-          <li style={{ marginBottom: '8px' }}>Text files are saved directly to the menu database</li>
-          <li style={{ marginBottom: '8px' }}>Images are processed with OCR to extract menu text (currently stubbed)</li>
-          <li style={{ marginBottom: '8px' }}>The AI uses this menu information to understand your offerings when taking orders</li>
+      <Alert variant="info" className="mt-4">
+        <Alert.Heading>How it works:</Alert.Heading>
+        <ul className="mb-0">
+          <li>Text files are saved directly to the menu database</li>
+          <li>Images are processed with OCR to extract menu text (currently stubbed)</li>
+          <li>The AI uses this menu information to understand your offerings when taking orders</li>
         </ul>
-      </div>
+      </Alert>
     </div>
   );
 }
