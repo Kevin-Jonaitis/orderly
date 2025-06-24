@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { AudioMessage } from '../types/order';
 
 export function useAudioStream() {
@@ -10,7 +10,7 @@ export function useAudioStream() {
   const websocketRef = useRef<WebSocket | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const handleAudioMessage = useCallback((message: AudioMessage) => {
+  const handleAudioMessage = (message: AudioMessage) => {
     console.log('Received audio message:', message);
     
     switch (message.type) {
@@ -29,7 +29,7 @@ export function useAudioStream() {
         setMessages(prev => [...prev, `Error: ${message.message}`]);
         break;
     }
-  }, []);
+  };
 
   const connectWebSocket = () => {
     if (websocketRef.current?.readyState === WebSocket.OPEN) {
@@ -65,7 +65,7 @@ export function useAudioStream() {
     websocketRef.current = ws;
   };
 
-  const startRecording = useCallback(async () => {
+  const startRecording = async () => {
     try {
       // Connect WebSocket first
       connectWebSocket();
@@ -108,9 +108,9 @@ export function useAudioStream() {
       console.error('Error starting recording:', error);
       alert('Could not access microphone. Please ensure you have granted permission.');
     }
-  }, [connectWebSocket]);
+  };
 
-  const stopRecording = useCallback(() => {
+  const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
@@ -129,15 +129,15 @@ export function useAudioStream() {
       websocketRef.current = null;
       setIsConnected(false);
     }
-  }, [isRecording]);
+  };
 
-  const toggleRecording = useCallback(() => {
+  const toggleRecording = () => {
     if (isRecording) {
       stopRecording();
     } else {
       startRecording();
     }
-  }, [isRecording, startRecording, stopRecording]);
+  };
 
   return {
     isRecording,

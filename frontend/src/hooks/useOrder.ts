@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Order } from '../types/order';
 
 // Simple UUID generator for frontend keys
@@ -13,13 +13,13 @@ export function useOrder() {
   const websocketRef = useRef<WebSocket | null>(null);
 
   // Process order data to add frontend IDs
-  const processOrderData = useCallback((orderData: any) => {
+  const processOrderData = (orderData: any) => {
     const itemsWithFrontendIds = orderData.items.map((item: any) => ({
       ...item,
       frontendId: item.frontendId || generateUUID()
     }));
     return { ...orderData, items: itemsWithFrontendIds };
-  }, []);
+  };
 
   // Fetch current order via REST API (fallback)
   const fetchOrder = async () => {
@@ -41,7 +41,7 @@ export function useOrder() {
   };
 
   // Connect to order WebSocket
-  const connectWebSocket = useCallback(() => {
+  const connectWebSocket = () => {
     if (websocketRef.current?.readyState === WebSocket.OPEN) {
       return;
     }
@@ -86,7 +86,7 @@ export function useOrder() {
     };
 
     websocketRef.current = ws;
-  }, [processOrderData]);
+  };
 
   // Clear order
   const clearOrder = async () => {
@@ -112,7 +112,7 @@ export function useOrder() {
         websocketRef.current = null;
       }
     };
-  }, [connectWebSocket]);
+  }, []);
 
   return {
     order,
