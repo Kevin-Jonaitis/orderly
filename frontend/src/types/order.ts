@@ -1,8 +1,9 @@
 export interface OrderItem {
-  id: string;
+  id: string; // Backend product ID
   name: string;
   price: number;
   quantity: number;
+  frontendId?: string; // Frontend unique key for React
 }
 
 export interface Order {

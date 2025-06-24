@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Order } from '../types/order';
 
+// Simple UUID generator for frontend keys
+function generateUUID() {
+  return 'frontend-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+}
+
 export function useOrder() {
   const [order, setOrder] = useState<Order>({ items: [], total: 0 });
   const [isLoading, setIsLoading] = useState(false);
@@ -14,7 +19,12 @@ export function useOrder() {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const orderData = await response.json();
-      setOrder(orderData);
+      // Add frontend IDs to each item for React keys
+      const itemsWithFrontendIds = orderData.items.map((item: any) => ({
+        ...item,
+        frontendId: item.frontendId || generateUUID()
+      }));
+      setOrder({ ...orderData, items: itemsWithFrontendIds });
     } catch (error) {
       console.error('Error fetching order:', error);
       // Set empty order on error so component can still render

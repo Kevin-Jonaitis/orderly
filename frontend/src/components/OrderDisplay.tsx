@@ -36,7 +36,7 @@ export function OrderDisplay() {
           <Stack gap={3}>
             <ListGroup>
               {order.items.map((item) => (
-                <ListGroup.Item key={item.id} className="d-flex justify-content-between align-items-center">
+                <ListGroup.Item key={item.frontendId || item.id} className="d-flex justify-content-between align-items-center">
                   <Stack direction="horizontal" gap={2}>
                     <Card.Text as="span" className="fw-bold mb-0">
                       {item.name}
