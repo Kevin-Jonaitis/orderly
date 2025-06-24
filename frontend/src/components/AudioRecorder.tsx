@@ -36,7 +36,6 @@ export function AudioRecorder() {
         <Stack gap={3} className="align-items-center">
           <Button
             onClick={toggleRecording}
-            disabled={!isConnected && !isRecording}
             variant={isRecording ? 'success' : 'danger'}
             size="lg"
             className="rounded-circle p-4 fs-1 d-flex align-items-center justify-content-center"

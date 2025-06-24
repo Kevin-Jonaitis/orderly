@@ -109,6 +109,7 @@ export function useAudioStream(onMessage: (message: AudioMessage) => void) {
   }, [isRecording]);
 
   const toggleRecording = useCallback(() => {
+	console.log("BUTTON CLICKED!!!")
     if (isRecording) {
       stopRecording();
     } else {
