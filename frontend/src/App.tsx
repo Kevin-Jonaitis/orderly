@@ -10,7 +10,7 @@ function App() {
   const [currentPage, setCurrentPage] = useState<Page>('order');
 
   return (
-    <div>
+    <>
       <Navbar bg="light" expand="lg" className="mb-4">
         <Container>
           <Navbar.Brand>🤖 AI Order Taker</Navbar.Brand>
@@ -61,7 +61,7 @@ function App() {
           </Row>
         )}
       </Container>
-    </div>
+    </>
   );
 }
 

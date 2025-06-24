@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Alert, Badge } from 'react-bootstrap';
+import { Button, Alert, Badge, Card, Stack, Container } from 'react-bootstrap';
 import { useAudioStream } from '../hooks/useAudioStream';
 import { AudioMessage } from '../types/order';
 
@@ -31,57 +31,57 @@ export function AudioRecorder() {
   const { isRecording, isConnected, toggleRecording } = useAudioStream(handleAudioMessage);
 
   return (
-    <div className="text-center">
-      <div className="mb-4">
-        <Button
-          onClick={toggleRecording}
-          disabled={!isConnected && !isRecording}
-          variant={isRecording ? 'success' : 'danger'}
-          size="lg"
-          style={{
-            width: '120px',
-            height: '120px',
-            borderRadius: '50%',
-            fontSize: '32px'
-          }}
-        >
-          🎤
-        </Button>
-        
-        <div className="mt-3">
-          <div className="mb-2">
-            <Badge bg={isConnected ? 'success' : 'danger'}>
+    <Container className="text-center">
+      <Stack gap={4}>
+        <Stack gap={3} className="align-items-center">
+          <Button
+            onClick={toggleRecording}
+            disabled={!isConnected && !isRecording}
+            variant={isRecording ? 'success' : 'danger'}
+            size="lg"
+            className="rounded-circle p-4 fs-1 d-flex align-items-center justify-content-center"
+            style={{ width: '120px', height: '120px' }}
+          >
+            🎤
+          </Button>
+          
+          <Stack gap={2} className="align-items-center">
+            <Badge bg={isConnected ? 'success' : 'danger'} className="w-75 p-2">
               WebSocket: {isConnected ? 'Connected' : 'Disconnected'}
             </Badge>
-          </div>
-          <div>
-            <Badge bg={isRecording ? 'primary' : 'secondary'}>
+            <Badge bg={isRecording ? 'primary' : 'secondary'} className="w-75 p-2">
               Status: {isRecording ? 'Recording...' : 'Ready'}
             </Badge>
-          </div>
-        </div>
-      </div>
+          </Stack>
+        </Stack>
 
-      {transcription && (
-        <Alert variant="info" className="my-3">
-          <Alert.Heading>Current Transcription:</Alert.Heading>
-          <p className="mb-0">"{transcription}"</p>
-        </Alert>
-      )}
+        {transcription && (
+          <Alert variant="info">
+            <Alert.Heading>Current Transcription:</Alert.Heading>
+            <Alert.Link>{transcription}</Alert.Link>
+          </Alert>
+        )}
 
-      <div className="text-start">
-        <h5>Activity Log:</h5>
-        <div className="bg-light p-3 rounded" style={{ maxHeight: '200px', overflowY: 'auto' }}>
-          {messages.slice(-5).map((message, index) => (
-            <div key={index} className="py-1 border-bottom">
-              <small>{message}</small>
-            </div>
-          ))}
-          {messages.length === 0 && (
-            <small className="text-muted">No activity yet...</small>
-          )}
-        </div>
-      </div>
-    </div>
+        <Container className="text-start">
+          <Card.Title as="h5">Activity Log:</Card.Title>
+          <Card className="bg-light">
+            <Card.Body className="overflow-auto">
+              <Stack gap={1}>
+                {messages.slice(-5).map((message, index) => (
+                  <Card.Text key={index} as="small" className="border-bottom py-1">
+                    {message}
+                  </Card.Text>
+                ))}
+                {messages.length === 0 && (
+                  <Card.Text as="small" className="text-muted">
+                    No activity yet...
+                  </Card.Text>
+                )}
+              </Stack>
+            </Card.Body>
+          </Card>
+        </Container>
+      </Stack>
+    </Container>
   );
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Form, Alert, Card } from 'react-bootstrap';
+import { Button, Form, Alert, Card, Stack, Container } from 'react-bootstrap';
 
 export function MenuUpload() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -73,90 +73,95 @@ export function MenuUpload() {
   };
 
   return (
-    <div>
-      <h4 className="mb-1">Menu Upload</h4>
-      <p className="text-muted mb-4">
-        Upload your restaurant menu as text or image. This will be used to help the AI understand your offerings.
-      </p>
+    <Container>
+      <Stack gap={4}>
+        <Stack gap={1}>
+          <Card.Title as="h4">Menu Upload</Card.Title>
+          <Card.Text className="text-muted">
+            Upload your restaurant menu as text or image. This will be used to help the AI understand your offerings.
+          </Card.Text>
+        </Stack>
 
-      <div className="d-flex flex-column gap-4">
-        {/* Text Input Section */}
-        <Card>
-          <Card.Body>
-            <Card.Title>Enter Menu Text</Card.Title>
-            <Form>
-              <Form.Group className="mb-3">
-                <Form.Control
-                  as="textarea"
-                  rows={8}
-                  value={textContent}
-                  onChange={handleTextChange}
-                  placeholder="Enter your menu items here...
+        <Stack gap={4}>
+          {/* Text Input Section */}
+          <Card>
+            <Card.Body>
+              <Card.Title>Enter Menu Text</Card.Title>
+              <Form>
+                <Form.Group className="mb-3">
+                  <Form.Control
+                    as="textarea"
+                    rows={8}
+                    value={textContent}
+                    onChange={handleTextChange}
+                    placeholder="Enter your menu items here...
 
 Example:
 Cheeseburger - $8.99
 Fries - $3.99
 Drink - $2.99"
-                />
-              </Form.Group>
-              <Button
-                onClick={uploadTextContent}
-                disabled={isUploading || !textContent.trim()}
-                variant="primary"
-              >
-                {isUploading ? 'Uploading...' : 'Save Menu Text'}
-              </Button>
-            </Form>
-          </Card.Body>
-        </Card>
+                  />
+                </Form.Group>
+                <Button
+                  onClick={uploadTextContent}
+                  disabled={isUploading || !textContent.trim()}
+                  variant="primary"
+                >
+                  {isUploading ? 'Uploading...' : 'Save Menu Text'}
+                </Button>
+              </Form>
+            </Card.Body>
+          </Card>
 
-        <div className="text-center text-muted fw-bold">OR</div>
+          <Alert variant="secondary" className="text-center">
+            <Alert.Heading>OR</Alert.Heading>
+          </Alert>
 
-        {/* File Upload Section */}
-        <Card>
-          <Card.Body>
-            <Card.Title>Upload Menu File</Card.Title>
-            <Form>
-              <Form.Group className="mb-3">
-                <Form.Control
-                  id="file-input"
-                  type="file"
-                  onChange={handleFileSelect}
-                  accept=".txt,.png,.jpg,.jpeg,.pdf"
-                />
-                <Form.Text className="text-muted">
-                  Supported: Text files (.txt) and Images (.png, .jpg, .jpeg)
-                </Form.Text>
-              </Form.Group>
-              <Button
-                onClick={handleUpload}
-                disabled={isUploading || !selectedFile}
-                variant="primary"
-              >
-                {isUploading ? 'Uploading...' : 'Upload File'}
-              </Button>
-            </Form>
-          </Card.Body>
-        </Card>
-      </div>
+          {/* File Upload Section */}
+          <Card>
+            <Card.Body>
+              <Card.Title>Upload Menu File</Card.Title>
+              <Form>
+                <Form.Group className="mb-3">
+                  <Form.Control
+                    id="file-input"
+                    type="file"
+                    onChange={handleFileSelect}
+                    accept=".txt,.png,.jpg,.jpeg,.pdf"
+                  />
+                  <Form.Text className="text-muted">
+                    Supported: Text files (.txt) and Images (.png, .jpg, .jpeg)
+                  </Form.Text>
+                </Form.Group>
+                <Button
+                  onClick={handleUpload}
+                  disabled={isUploading || !selectedFile}
+                  variant="primary"
+                >
+                  {isUploading ? 'Uploading...' : 'Upload File'}
+                </Button>
+              </Form>
+            </Card.Body>
+          </Card>
+        </Stack>
 
-      {uploadMessage && (
-        <Alert 
-          variant={uploadMessage.startsWith('✅') ? 'success' : 'danger'}
-          className="mt-4"
-        >
-          {uploadMessage}
+        {uploadMessage && (
+          <Alert 
+            variant={uploadMessage.startsWith('✅') ? 'success' : 'danger'}
+          >
+            {uploadMessage}
+          </Alert>
+        )}
+
+        <Alert variant="info">
+          <Alert.Heading>How it works:</Alert.Heading>
+          <Stack as="ul" gap={1} className="mb-0">
+            <Card.Text as="li">Text files are saved directly to the menu database</Card.Text>
+            <Card.Text as="li">Images are processed with OCR to extract menu text (currently stubbed)</Card.Text>
+            <Card.Text as="li">The AI uses this menu information to understand your offerings when taking orders</Card.Text>
+          </Stack>
         </Alert>
-      )}
-
-      <Alert variant="info" className="mt-4">
-        <Alert.Heading>How it works:</Alert.Heading>
-        <ul className="mb-0">
-          <li>Text files are saved directly to the menu database</li>
-          <li>Images are processed with OCR to extract menu text (currently stubbed)</li>
-          <li>The AI uses this menu information to understand your offerings when taking orders</li>
-        </ul>
-      </Alert>
-    </div>
+      </Stack>
+    </Container>
   );
 }
