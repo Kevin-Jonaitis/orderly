@@ -1,14 +1,37 @@
 import { useCallback, useRef, useState } from 'react';
 import { AudioMessage } from '../types/order';
 
-export function useAudioStream(onMessage: (message: AudioMessage) => void) {
+export function useAudioStream() {
   const [isRecording, setIsRecording] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  const [messages, setMessages] = useState<string[]>([]);
+  const [transcription, setTranscription] = useState<string>('');
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const websocketRef = useRef<WebSocket | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const connectWebSocket = useCallback(() => {
+  const handleAudioMessage = useCallback((message: AudioMessage) => {
+    console.log('Received audio message:', message);
+    
+    switch (message.type) {
+      case 'transcription':
+        if (message.text) {
+          setTranscription(message.text);
+          setMessages(prev => [...prev, `You said: "${message.text}"`]);
+        }
+        break;
+      case 'audio_response':
+        if (message.text) {
+          setMessages(prev => [...prev, `AI: ${message.text}`]);
+        }
+        break;
+      case 'error':
+        setMessages(prev => [...prev, `Error: ${message.message}`]);
+        break;
+    }
+  }, []);
+
+  const connectWebSocket = () => {
     if (websocketRef.current?.readyState === WebSocket.OPEN) {
       return;
     }
@@ -23,7 +46,7 @@ export function useAudioStream(onMessage: (message: AudioMessage) => void) {
     ws.onmessage = (event) => {
       try {
         const message: AudioMessage = JSON.parse(event.data);
-        onMessage(message);
+        handleAudioMessage(message);
       } catch (error) {
         console.error('Error parsing WebSocket message:', error);
       }
@@ -40,7 +63,7 @@ export function useAudioStream(onMessage: (message: AudioMessage) => void) {
     };
 
     websocketRef.current = ws;
-  }, [onMessage]);
+  };
 
   const startRecording = useCallback(async () => {
     try {
@@ -119,6 +142,8 @@ export function useAudioStream(onMessage: (message: AudioMessage) => void) {
   return {
     isRecording,
     isConnected,
+    messages,
+    transcription,
     startRecording,
     stopRecording,
     toggleRecording,

@@ -1,34 +1,14 @@
-import { useState } from 'react';
 import { Button, Alert, Badge, Card, Stack, Container } from 'react-bootstrap';
 import { useAudioStream } from '../hooks/useAudioStream';
-import { AudioMessage } from '../types/order';
 
 export function AudioRecorder() {
-  const [messages, setMessages] = useState<string[]>([]);
-  const [transcription, setTranscription] = useState<string>('');
-
-  const handleAudioMessage = (message: AudioMessage) => {
-    console.log('Received audio message:', message);
-    
-    switch (message.type) {
-      case 'transcription':
-        if (message.text) {
-          setTranscription(message.text);
-          setMessages(prev => [...prev, `You said: "${message.text}"`]);
-        }
-        break;
-      case 'audio_response':
-        if (message.text) {
-          setMessages(prev => [...prev, `AI: ${message.text}`]);
-        }
-        break;
-      case 'error':
-        setMessages(prev => [...prev, `Error: ${message.message}`]);
-        break;
-    }
-  };
-
-  const { isRecording, isConnected, toggleRecording } = useAudioStream(handleAudioMessage);
+  const { 
+    isRecording, 
+    isConnected, 
+    messages, 
+    transcription, 
+    toggleRecording 
+  } = useAudioStream();
 
   return (
     <Container className="text-center">
