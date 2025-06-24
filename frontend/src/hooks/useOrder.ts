@@ -42,15 +42,17 @@ export function useOrder() {
 
   // Connect to order WebSocket
   const connectWebSocket = () => {
-    if (websocketRef.current?.readyState === WebSocket.OPEN) {
+    if (websocketRef.current?.readyState === WebSocket.OPEN || websocketRef.current?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+    if (websocketRef.current?.readyState === WebSocket.CLOSING) {
       return;
     }
 
-    console.log('Connecting to Order WebSocket...');
     const ws = new WebSocket('ws://localhost:8000/ws/order');
     
     ws.onopen = () => {
-      console.log('Order WebSocket connected');
+      websocketRef.current = ws;
       setIsConnected(true);
     };
 
@@ -66,22 +68,12 @@ export function useOrder() {
     };
 
     ws.onclose = (event) => {
-      console.log('Order WebSocket disconnected', event.code, event.reason);
       setIsConnected(false);
-      
-      // Try to reconnect after a delay unless it was a clean disconnect
-      if (event.code !== 1000) {
-        setTimeout(() => {
-          connectWebSocket();
-        }, 3000);
-      }
     };
 
     ws.onerror = (error) => {
       console.error('Order WebSocket error:', error);
       setIsConnected(false);
-      
-      // Fallback to REST API
       fetchOrder();
     };
 
@@ -107,8 +99,15 @@ export function useOrder() {
 
     // Cleanup on unmount
     return () => {
-      if (websocketRef.current) {
-        websocketRef.current.close();
+      const currentWebsocket = websocketRef.current;
+      if (currentWebsocket) {
+        if (currentWebsocket.readyState === WebSocket.CONNECTING) {
+          currentWebsocket.onopen = () => {
+            currentWebsocket?.close();
+          };
+        } else {
+          currentWebsocket.close();
+        }
         websocketRef.current = null;
       }
     };
