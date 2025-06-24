@@ -39,6 +39,7 @@ class Order(BaseModel):
 # Global state (in production, use proper state management)
 current_order: List[OrderItem] = []
 active_connections: List[WebSocket] = []
+order_connections: List[WebSocket] = []
 
 # Create directories
 Path("logs").mkdir(exist_ok=True)
@@ -208,6 +209,7 @@ async def websocket_audio(websocket: WebSocket):
 async def websocket_order(websocket: WebSocket):
     """WebSocket endpoint for order updates"""
     await websocket.accept()
+    order_connections.append(websocket)
     
     logger.info("Order WebSocket connected")
     
@@ -225,6 +227,8 @@ async def websocket_order(websocket: WebSocket):
             
     except WebSocketDisconnect:
         logger.info("Order WebSocket disconnected")
+        if websocket in order_connections:
+            order_connections.remove(websocket)
 
 async def process_audio_pipeline(audio_chunk: bytes, websocket: WebSocket):
     """Process audio through the full pipeline"""
@@ -284,8 +288,19 @@ async def broadcast_order_update():
         "total": sum(item.price * item.quantity for item in current_order)
     }
     
-    # In a real app, you'd have separate order WebSocket connections
-    # For now, we'll let the frontend poll or use a separate connection
+    # Send to all connected order WebSocket clients
+    disconnected_connections = []
+    for connection in order_connections:
+        try:
+            await connection.send_text(json.dumps(order_data))
+        except Exception as e:
+            logger.error(f"Error broadcasting to order connection: {e}")
+            disconnected_connections.append(connection)
+    
+    # Remove disconnected connections
+    for connection in disconnected_connections:
+        if connection in order_connections:
+            order_connections.remove(connection)
 
 @app.post("/api/upload-menu")
 async def upload_menu(file: UploadFile = File(...)):
@@ -339,6 +354,7 @@ async def clear_order():
     """Clear current order"""
     global current_order
     current_order = []
+    await broadcast_order_update()
     return {"message": "Order cleared"}
 
 @app.get("/")

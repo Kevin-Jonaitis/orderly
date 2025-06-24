@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Order } from '../types/order';
 
 // Simple UUID generator for frontend keys
@@ -9,8 +9,19 @@ function generateUUID() {
 export function useOrder() {
   const [order, setOrder] = useState<Order>({ items: [], total: 0 });
   const [isLoading, setIsLoading] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const websocketRef = useRef<WebSocket | null>(null);
 
-  // Fetch current order
+  // Process order data to add frontend IDs
+  const processOrderData = useCallback((orderData: any) => {
+    const itemsWithFrontendIds = orderData.items.map((item: any) => ({
+      ...item,
+      frontendId: item.frontendId || generateUUID()
+    }));
+    return { ...orderData, items: itemsWithFrontendIds };
+  }, []);
+
+  // Fetch current order via REST API (fallback)
   const fetchOrder = async () => {
     try {
       setIsLoading(true);
@@ -19,20 +30,63 @@ export function useOrder() {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const orderData = await response.json();
-      // Add frontend IDs to each item for React keys
-      const itemsWithFrontendIds = orderData.items.map((item: any) => ({
-        ...item,
-        frontendId: item.frontendId || generateUUID()
-      }));
-      setOrder({ ...orderData, items: itemsWithFrontendIds });
+      const processedOrder = processOrderData(orderData);
+      setOrder(processedOrder);
     } catch (error) {
       console.error('Error fetching order:', error);
-      // Set empty order on error so component can still render
       setOrder({ items: [], total: 0 });
     } finally {
       setIsLoading(false);
     }
   };
+
+  // Connect to order WebSocket
+  const connectWebSocket = useCallback(() => {
+    if (websocketRef.current?.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    console.log('Connecting to Order WebSocket...');
+    const ws = new WebSocket('ws://localhost:8000/ws/order');
+    
+    ws.onopen = () => {
+      console.log('Order WebSocket connected');
+      setIsConnected(true);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const orderData = JSON.parse(event.data);
+        const processedOrder = processOrderData(orderData);
+        setOrder(processedOrder);
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error parsing order WebSocket message:', error);
+      }
+    };
+
+    ws.onclose = (event) => {
+      console.log('Order WebSocket disconnected', event.code, event.reason);
+      setIsConnected(false);
+      
+      // Try to reconnect after a delay unless it was a clean disconnect
+      if (event.code !== 1000) {
+        setTimeout(() => {
+          connectWebSocket();
+        }, 3000);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('Order WebSocket error:', error);
+      setIsConnected(false);
+      
+      // Fallback to REST API
+      fetchOrder();
+    };
+
+    websocketRef.current = ws;
+  }, [processOrderData]);
 
   // Clear order
   const clearOrder = async () => {
@@ -40,22 +94,30 @@ export function useOrder() {
       await fetch('http://localhost:8000/api/order/clear', {
         method: 'POST',
       });
-      setOrder({ items: [], total: 0 });
+      // Don't manually update order here - let WebSocket update handle it
     } catch (error) {
       console.error('Error clearing order:', error);
     }
   };
 
-  // Poll for order updates (in real app, use WebSocket)
+  // Connect to WebSocket on mount
   useEffect(() => {
-    fetchOrder();
-    const interval = setInterval(fetchOrder, 2000); // Poll every 2 seconds
-    return () => clearInterval(interval);
-  }, []);
+    setIsLoading(true);
+    connectWebSocket();
+
+    // Cleanup on unmount
+    return () => {
+      if (websocketRef.current) {
+        websocketRef.current.close();
+        websocketRef.current = null;
+      }
+    };
+  }, [connectWebSocket]);
 
   return {
     order,
     isLoading,
+    isConnected,
     clearOrder,
     refetch: fetchOrder,
   };
