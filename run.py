@@ -9,7 +9,15 @@ import sys
 import os
 import threading
 import time
+import socket
 from pathlib import Path
+
+def kill_port(port):
+    """Kill any process using the specified port"""
+    try:
+        subprocess.run(f"lsof -ti:{port} | xargs kill -9", shell=True, capture_output=True)
+    except:
+        pass
 
 def run_backend():
     """Run the backend server"""
@@ -35,6 +43,9 @@ def run_backend():
         return
     
     print(f"🐍 Starting backend with: {python_exe}")
+    
+    # Kill any existing backend process
+    kill_port(8000)
     
     try:
         subprocess.run([
