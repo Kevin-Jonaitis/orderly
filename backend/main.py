@@ -116,6 +116,7 @@ def convert_webm_to_wav(webm_bytes: bytes) -> bytes:
 # STT components
 import tempfile
 from abc import ABC, abstractmethod
+from audio_chunking import ChunkProcessor
 
 # ================== STT MODEL SELECTION ==================
 # Change this variable to switch between STT models
@@ -252,10 +253,10 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
             self.model: Any = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained(
 				model_name="stt_en_fastconformer_hybrid_large_streaming_multi")
 
+            self.model.encoder.set_default_att_context_size([70, 6])  
 
             
-            # Clear GPU memory completely before loading
-            torch.cuda.empty_cache()
+            # GPU memory management (empty_cache removed - was causing CUDA errors)
             if torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()
                 torch.cuda.synchronize()
@@ -271,8 +272,7 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
                 logger.error(f"Failed to move model to GPU: {e}")
                 raise e
             
-            # Final memory cleanup
-            torch.cuda.empty_cache()
+            # Final memory cleanup (empty_cache removed - was causing CUDA errors)
             
             # Check GPU memory status
             if torch.cuda.is_available():
@@ -302,8 +302,7 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
         
         try:
             start_time = time.time()
-            # Clear GPU cache before warmup
-            torch.cuda.empty_cache()
+            # GPU cache management (empty_cache removed - was causing CUDA errors)
             
             # NeMo transcription with optimized settings
             with torch.no_grad():  # Disable gradients for inference
@@ -321,66 +320,91 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
             logger.warning("Continuing without warmup")
     
     async def transcribe(self, wav_bytes: bytes) -> str:
-        """Transcribe WAV audio using 480ms chunked approach (simplified)"""
+        """Transcribe WAV audio using pre-generated 480ms chunks"""
         import torch
+        from pathlib import Path
         
-        # Just process the whole file in chunks using the original approach
-        # but simulate 480ms chunking with multiple calls
-        CHUNK_DURATION_MS = 480
-        
-        # Time the complete inference process
         inference_start = time.time()
         
-        # Save original file once
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
-            tmp_file.write(wav_bytes)
-            tmp_file.flush()
-            
-            # Process with chunked timing simulation
+        # Initialize chunk processor
+        chunk_processor = ChunkProcessor("test/chunks")
+        
+        if not chunk_processor.is_ready():
+            print("❌ No chunk files available for processing")
+            print("💡 Run 'python3 generate_chunks.py' to create chunk files")
+            return ""
+        
+        print(f"📁 Found {chunk_processor.get_chunk_count()} pre-generated chunks")
+        print(f"⏱️  Estimated duration: {chunk_processor.get_estimated_duration():.1f}s")
+        print(f"🧠 GPU memory before processing: {torch.cuda.memory_allocated()/1024**3:.2f}GB")
+        
+        # Process each chunk through streaming model
+        all_transcripts = []
+        total_chunk_time = 0
+        chunk_count = 0
+        
+        for chunk_path in chunk_processor.iter_chunk_paths():
+            chunk_count += 1
             chunk_start = time.time()
-            try:
-                print(f"🔄 Processing audio file as single chunk...")
+            chunk_name = Path(chunk_path).name
             
-                
-                print(f"🧠 GPU memory before processing: {torch.cuda.memory_allocated()/1024**3:.2f}GB")
+            try:
+                print(f"🔄 Processing {chunk_name} ({chunk_count}/{chunk_processor.get_chunk_count()})")
                 
                 with torch.no_grad():
-                    print(f"📝 Starting transcription...")
-                    transcript = self.model.transcribe([tmp_file.name])
-                    print(f"✅ Transcription completed")
-                    text = transcript[0] if transcript and len(transcript) > 0 else ""
+                    # Process chunk through streaming model (maintains internal cache)
+                    transcript = self.model.transcribe([chunk_path])
+                    
+                    # Handle NeMo model output (can be Hypothesis objects or strings)
+                    if transcript and len(transcript) > 0:
+                        chunk_result = transcript[0]
+                        if hasattr(chunk_result, 'text'):
+                            # It's a Hypothesis object
+                            chunk_text = chunk_result.text
+                        else:
+                            # It's already a string
+                            chunk_text = chunk_result
+                    else:
+                        chunk_text = ""
+                    
+                    if chunk_text and chunk_text.strip():
+                        all_transcripts.append(chunk_text.strip())
+                        print(f"✅ {chunk_name}: '{chunk_text.strip()}'")
+                    else:
+                        print(f"🔇 {chunk_name}: [silence]")
                 
-                # Ensure processing completes
+                # Ensure GPU operations complete
                 torch.cuda.synchronize()
-                print(f"🔄 GPU sync completed")
                 
             except Exception as e:
-                logger.error(f"❌ Transcription failed with error: {e}")
-                print(f"❌ Full error details: {str(e)}")
-                text = ""
+                logger.error(f"❌ {chunk_name} failed: {e}")
+                print(f"❌ {chunk_name} error: {str(e)}")
             
             chunk_ms = (time.time() - chunk_start) * 1000
-            
-            # Cleanup temp file
-            import os
-            os.unlink(tmp_file.name)
+            total_chunk_time += chunk_ms
+            print(f"⏱️  {chunk_name} processed in {chunk_ms:.0f}ms")
         
+        # Combine all transcripts
+        final_text = " ".join(all_transcripts)
         total_inference_ms = (time.time() - inference_start) * 1000
         
         # Calculate performance metrics
-        duration_seconds = len(wav_bytes) / (16000 * 2)
+        duration_seconds = chunk_processor.get_estimated_duration()
         realtime_factor = duration_seconds * 1000 / total_inference_ms
         
-        print(f"🎤 Streaming Total: {total_inference_ms:.0f}ms ({realtime_factor:.1f}x realtime) → '{text}'")
+        print(f"🎤 Streaming Result: {total_inference_ms:.0f}ms total ({realtime_factor:.1f}x realtime)")
+        print(f"📝 Final transcript: '{final_text}'")
         
         latency_logger.log_event("STT_TRANSCRIBE", {
-            "model": "fastconformer-streaming-480ms",
-            "text": text, 
+            "model": "fastconformer-streaming-480ms-prechunked",
+            "chunks_processed": chunk_processor.get_chunk_count(),
+            "text": final_text, 
             "inference_ms": total_inference_ms,
+            "avg_chunk_ms": total_chunk_time / chunk_processor.get_chunk_count() if chunk_processor.get_chunk_count() > 0 else 0,
             "realtime_factor": realtime_factor
         }, total_inference_ms)
         
-        return text.strip()
+        return final_text.strip()
 
 # ================== STT FACTORY ==================
 def create_stt_processor() -> BaseSTTProcessor:
