@@ -128,11 +128,11 @@ class STTProcessor:
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
         
-        logger.info("Loading Faster-Whisper model (base.en, GPU optimized)")
+        logger.info("Loading Faster-Whisper model (base.en, GPU optimized, int8)")
         self.model = WhisperModel(
             "base.en", 
             device="cuda", 
-            compute_type="float16",
+            compute_type="int8",
             device_index=0,
             cpu_threads=0  # Force GPU-only processing
         )
