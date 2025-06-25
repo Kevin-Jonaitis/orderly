@@ -239,7 +239,7 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
             import nemo.collections.asr as nemo_asr
             
             # Load pre-trained Parakeet model
-            self.model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
+            self.model: Any = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
                 "stt_en_fastconformer_transducer_large"
             )
             self.model.eval()
