@@ -224,33 +224,43 @@ class WhisperSTTProcessor(BaseSTTProcessor):
         return text.strip()
 
 class ParakeetSTTProcessor(BaseSTTProcessor):
-    """Real-time STT using Parakeet (NeMo ASR)"""
+    """Real-time STT using Parakeet (NeMo ASR, PyTorch optimized)"""
     
     def __init__(self):
         import os
+        import torch
+        from typing import Any
         
         # Suppress various warning outputs  
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
         os.environ['HYDRA_FULL_ERROR'] = '1'
         
-        logger.info("Loading Parakeet ASR model (FastConformer, GPU optimized)")
+        # PyTorch optimizations for speed and memory
+        logger.info("🚀 Enabling PyTorch optimizations...")
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.deterministic = False
+        torch._C._jit_set_profiling_executor(False)
+        torch._C._jit_set_profiling_mode(False)
+        
+        logger.info("Loading Parakeet model (NeMo ASR, PyTorch optimized)")
         
         try:
             import nemo.collections.asr as nemo_asr
             
-            # Load pre-trained Parakeet model
+            # Load fast Parakeet model
+            logger.info("🔄 Loading Parakeet TDT model...")
             self.model: Any = nemo_asr.models.ASRModel.from_pretrained(
                 model_name="nvidia/parakeet-tdt-0.6b-v2"
             )
-
-            # # Load pre-trained Parakeet model
-            # self.model: Any = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
-            #     "stt_en_fastconformer_transducer_large"
-            # )
+            
+            # PyTorch optimizations
             self.model.eval()
             self.model = self.model.cuda()
             
-            logger.info("✅ Parakeet ASR model loaded successfully")
+            # Memory cleanup (remove problematic FP16 conversion for now)
+            torch.cuda.empty_cache()
+            
+            logger.info("✅ Parakeet NeMo model loaded successfully (GPU optimized)")
             self.device = "GPU"
             
             # Warm up the model
@@ -266,17 +276,22 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
     
     def _warmup_model(self):
         """Warm up the model with actual audio file to avoid cold start"""
+        import torch
+        
         warmup_file = "test/warm_up.wav"
         
         start_time = time.time()
-        # Parakeet transcription (will be implemented)
-        text = self.model.transcribe([warmup_file])
+        # NeMo transcription with optimized settings
+        with torch.no_grad():  # Disable gradients for inference
+            text = self.model.transcribe([warmup_file], verbose=False)
         warmup_ms = (time.time() - start_time) * 1000
         
         logger.info(f"🚀 Parakeet GPU warmup completed with {warmup_file} in {warmup_ms:.0f}ms")
     
     async def transcribe(self, wav_bytes: bytes) -> str:
-        """Transcribe WAV audio bytes to text using Parakeet"""
+        """Transcribe WAV audio bytes to text using Parakeet NeMo"""
+        import torch
+        
         # Save to temporary file
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
             tmp_file.write(wav_bytes)
@@ -285,9 +300,10 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
             # Time the complete inference process
             inference_start = time.time()
             
-            # Parakeet transcription
-            transcript = self.model.transcribe([tmp_file.name], timestamps=False)
-            text = transcript[0] if transcript and len(transcript) > 0 else ""
+            # NeMo transcription with PyTorch optimizations
+            with torch.no_grad():  # Disable gradients for inference
+                transcript = self.model.transcribe([tmp_file.name], verbose=False)
+                text = transcript[0] if transcript and len(transcript) > 0 else ""
             
             inference_ms = (time.time() - inference_start) * 1000
             
@@ -299,10 +315,10 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
         duration_seconds = len(wav_bytes) / (16000 * 2)  # Approximate duration
         realtime_factor = duration_seconds * 1000 / inference_ms
         
-        print(f"🎤 Parakeet STT: {inference_ms:.0f}ms ({realtime_factor:.1f}x realtime) → '{text}'")
+        print(f"🎤 Parakeet NeMo: {inference_ms:.0f}ms ({realtime_factor:.1f}x realtime) → '{text}'")
         
         latency_logger.log_event("STT_TRANSCRIBE", {
-            "model": "parakeet",
+            "model": "parakeet-nemo",
             "text": text, 
             "inference_ms": inference_ms,
             "realtime_factor": realtime_factor
