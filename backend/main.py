@@ -113,24 +113,70 @@ def convert_webm_to_wav(webm_bytes: bytes) -> bytes:
         logger.error(f"FFmpeg conversion failed (exit {e.returncode}): {stderr_output}")
         return b""
 
-# Stub components for the full pipeline
+# STT components
+import tempfile
+from faster_whisper import WhisperModel
+
 class STTProcessor:
-    """Stub for Parakeet STT"""
+    """Real-time STT using Faster-Whisper"""
     
-    async def transcribe(self, audio_chunk: bytes) -> str:
-        """Stub transcription - replace with Parakeet"""
-        start_time = time.time()
+    def __init__(self):
+        # For now, force CPU mode to avoid cuDNN issues
+        logger.info("Loading Faster-Whisper model (base.en, CPU)")
+        self.model = WhisperModel("base.en", device="cpu", compute_type="int8")
+        logger.info("Faster-Whisper model loaded successfully (base.en, CPU)")
+    
+    async def transcribe(self, wav_bytes: bytes) -> str:
+        """Transcribe WAV audio bytes to text"""
+        total_start_time = time.time()
         
-        # Simulate processing time
-        await asyncio.sleep(0.1)
-        
-        # Mock transcription
-        text = "I want a cheeseburger and fries"
-        
-        latency_ms = (time.time() - start_time) * 1000
-        latency_logger.log_event("STT_TRANSCRIBE", {"text": text}, latency_ms)
-        
-        return text
+        try:
+            # Save WAV bytes to temporary file (Whisper needs file path)
+            file_start_time = time.time()
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+                tmp_file.write(wav_bytes)
+                tmp_file.flush()
+            file_save_ms = (time.time() - file_start_time) * 1000
+            
+            print(f"⏱️  File save: {file_save_ms:.1f}ms")
+            
+            # Transcribe with optimized settings for speed
+            transcribe_start_time = time.time()
+            print(f"🔄 Starting Whisper transcription...")
+            
+            segments, info = self.model.transcribe(
+                tmp_file.name,
+                beam_size=1,  # Faster decoding
+                language="en",
+                task="transcribe"
+            )
+            
+            # Combine all segments into single text (this actually does the transcription)
+            text = " ".join([segment.text.strip() for segment in segments])
+            
+            transcribe_ms = (time.time() - transcribe_start_time) * 1000
+            print(f"⚡ Whisper transcription: {transcribe_ms:.1f}ms")
+            
+            # Clean up temp file
+            import os
+            os.unlink(tmp_file.name)
+            
+            total_latency_ms = (time.time() - total_start_time) * 1000
+            latency_logger.log_event("STT_TRANSCRIBE", {"text": text}, total_latency_ms)
+            
+            # Console logging for debugging
+            if text:
+                print(f"🎤 TRANSCRIBED (TOTAL: {total_latency_ms:.1f}ms): '{text}'")
+                print(f"📊 Breakdown: File={file_save_ms:.1f}ms, Whisper={transcribe_ms:.1f}ms, Text={text_process_ms:.1f}ms")
+            else:
+                print(f"🎤 NO TRANSCRIPTION RESULT (TOTAL: {total_latency_ms:.1f}ms)")
+            
+            return text.strip()
+            
+        except Exception as e:
+            total_latency_ms = (time.time() - total_start_time) * 1000
+            logger.error(f"STT transcription failed after {total_latency_ms:.1f}ms: {e}")
+            return ""
 
 class LLMReasoner:
     """Stub for Phi-3 Mini reasoning LLM"""
