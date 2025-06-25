@@ -250,8 +250,11 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
             # Load fast Parakeet model
             logger.info("🔄 Loading Parakeet TDT model...")
             self.model: Any = nemo_asr.models.ASRModel.from_pretrained(
-                model_name="nvidia/parakeet-tdt-0.6b-v2"
+                model_name="stt_en_fastconformer_hybrid_large_streaming_multi"
             )
+			#480 ms
+            self.model.encoder.set_default_att_context_size([70,16]) 
+
             
             # PyTorch optimizations
             self.model.eval()
