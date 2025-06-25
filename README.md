@@ -23,8 +23,12 @@ A real-time AI-powered order taking system with streaming audio and intelligent 
 - ✅ **Modular design**: Easy switching between STT models
 - ✅ **Performance**: Sub-200ms inference on RTX 3070
 
+### Current LLM Implementation
+- ✅ **Phi-3 Mini**: Order reasoning with llama.cpp (Q4 quantized)
+- ✅ **KV Cache**: Enabled for faster inference
+- ✅ **Configurable prompts**: Easy system prompt modification
+
 ### Planned Integration  
-- 🔄 Phi-3 Mini for order reasoning
 - 🔄 Chatterbox + SNAC for text-to-speech
 
 ## Quick Start
@@ -55,6 +59,10 @@ pip install nemo_toolkit[asr] omegaconf hydra-core
 ```bash
 # Setup virtual environment and install all dependencies
 python3 setup_env.py
+
+# Download Phi-3 Mini model (required for LLM)
+mkdir -p models
+curl -L -o models/Phi-3-mini-4k-instruct-q4.gguf https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf
 ```
 
 ### Development Mode (Hot Reload)

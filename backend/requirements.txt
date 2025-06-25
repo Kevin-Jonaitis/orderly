@@ -8,6 +8,9 @@ torch>=2.0.0
 torchaudio>=2.0.0
 numpy>=1.20.0
 
+# LLM dependencies
+llama-cpp-python[server]>=0.2.0
+
 # Parakeet STT dependencies (optional)
 # Option 1: NeMo toolkit (full featured)
 # nemo_toolkit[asr]>=1.20.0
