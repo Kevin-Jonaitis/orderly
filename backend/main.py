@@ -121,62 +121,64 @@ class STTProcessor:
     """Real-time STT using Faster-Whisper"""
     
     def __init__(self):
-        # For now, force CPU mode to avoid cuDNN issues
-        logger.info("Loading Faster-Whisper model (base.en, CPU)")
-        self.model = WhisperModel("base.en", device="cpu", compute_type="int8")
-        logger.info("Faster-Whisper model loaded successfully (base.en, CPU)")
+        # GPU-only implementation with optimized settings
+        import os
+        
+        # Suppress various warning outputs
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+        os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+        
+        logger.info("Loading Faster-Whisper model (base.en, GPU optimized)")
+        self.model = WhisperModel(
+            "base.en", 
+            device="cuda", 
+            compute_type="float16",
+            device_index=0,
+            cpu_threads=0  # Force GPU-only processing
+        )
+        logger.info("✅ Faster-Whisper GPU model loaded successfully")
+        self.device = "GPU"
     
     async def transcribe(self, wav_bytes: bytes) -> str:
         """Transcribe WAV audio bytes to text"""
-        total_start_time = time.time()
+        start_time = time.time()
         
-        try:
-            # Save WAV bytes to temporary file (Whisper needs file path)
-            file_start_time = time.time()
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
-                tmp_file.write(wav_bytes)
-                tmp_file.flush()
-            file_save_ms = (time.time() - file_start_time) * 1000
+        # Save to temporary file
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+            tmp_file.write(wav_bytes)
+            tmp_file.flush()
             
-            print(f"⏱️  File save: {file_save_ms:.1f}ms")
-            
-            # Transcribe with optimized settings for speed
-            transcribe_start_time = time.time()
-            print(f"🔄 Starting Whisper transcription...")
-            
+            # Transcribe with maximum speed settings
             segments, info = self.model.transcribe(
                 tmp_file.name,
-                beam_size=1,  # Faster decoding
+                beam_size=1,           # Fastest decoding
+                best_of=1,             # No multiple candidates
+                temperature=0,         # Deterministic output
+                condition_on_previous_text=False,  # No context carryover
+                word_timestamps=False, # Skip word-level timestamps
                 language="en",
-                task="transcribe"
+                task="transcribe",
+                vad_filter=False,      # Skip voice activity detection
+                vad_parameters=None
             )
             
-            # Combine all segments into single text (this actually does the transcription)
+            # Process segments immediately
             text = " ".join([segment.text.strip() for segment in segments])
             
-            transcribe_ms = (time.time() - transcribe_start_time) * 1000
-            print(f"⚡ Whisper transcription: {transcribe_ms:.1f}ms")
-            
-            # Clean up temp file
-            import os
-            os.unlink(tmp_file.name)
-            
-            total_latency_ms = (time.time() - total_start_time) * 1000
-            latency_logger.log_event("STT_TRANSCRIBE", {"text": text}, total_latency_ms)
-            
-            # Console logging for debugging
-            if text:
-                print(f"🎤 TRANSCRIBED (TOTAL: {total_latency_ms:.1f}ms): '{text}'")
-                print(f"📊 Breakdown: File={file_save_ms:.1f}ms, Whisper={transcribe_ms:.1f}ms, Text={text_process_ms:.1f}ms")
-            else:
-                print(f"🎤 NO TRANSCRIPTION RESULT (TOTAL: {total_latency_ms:.1f}ms)")
-            
-            return text.strip()
-            
-        except Exception as e:
-            total_latency_ms = (time.time() - total_start_time) * 1000
-            logger.error(f"STT transcription failed after {total_latency_ms:.1f}ms: {e}")
-            return ""
+        # Cleanup
+        import os
+        os.unlink(tmp_file.name)
+        
+        # Log performance
+        total_ms = (time.time() - start_time) * 1000
+        duration_seconds = len(wav_bytes) / (16000 * 2)  # Approximate duration
+        realtime_factor = duration_seconds * 1000 / total_ms
+        
+        print(f"🎤 STT: {total_ms:.0f}ms ({realtime_factor:.1f}x realtime) → '{text[:50]}{'...' if len(text) > 50 else '}'}")
+        
+        latency_logger.log_event("STT_TRANSCRIBE", {"text": text, "realtime_factor": realtime_factor}, total_ms)
+        
+        return text.strip()
 
 class LLMReasoner:
     """Stub for Phi-3 Mini reasoning LLM"""
