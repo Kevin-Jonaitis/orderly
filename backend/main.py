@@ -225,46 +225,62 @@ class WhisperSTTProcessor(BaseSTTProcessor):
         return text.strip()
 
 class ParakeetSTTProcessor(BaseSTTProcessor):
-    """Real-time STT using Parakeet (NeMo ASR, PyTorch optimized)"""
+    """Real-time STT using Parakeet (NeMo ASR) with proper streaming support"""
     
     def __init__(self):
         import os
         import torch
         from typing import Any
         
-        # Suppress various warning outputs  
-        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-        os.environ['HYDRA_FULL_ERROR'] = '1'
+        # Remove environment variable overhead (not in nemo_streaming_test.py)
+        # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+        # os.environ['HYDRA_FULL_ERROR'] = '1'
         
-        # PyTorch optimizations for speed and memory
-        logger.info("🚀 Enabling PyTorch optimizations...")
-        torch.backends.cudnn.benchmark = True
-        torch.backends.cudnn.deterministic = False
-        torch._C._jit_set_profiling_executor(False)
-        torch._C._jit_set_profiling_mode(False)
+        # Remove PyTorch optimizations that may be causing overhead
+        # logger.info("🚀 Enabling PyTorch optimizations...")
+        # torch.backends.cudnn.benchmark = True
+        # torch.backends.cudnn.deterministic = False
+        # torch._C._jit_set_profiling_executor(False)
+        # torch._C._jit_set_profiling_mode(False)
         
         logger.info("Loading Parakeet model (NeMo ASR, PyTorch optimized)")
         
         try:
             import nemo.collections.asr as nemo_asr
+            from nemo.collections.asr.parts.utils.streaming_utils import CacheAwareStreamingAudioBuffer
             
-            # Load fast Parakeet model (back to working version)
+            # Load model using generic ASRModel (like nemo_streaming_test.py)
             logger.info("🔄 Loading FastConformer Transducer model...")
-            self.model: Any = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained(
-				model_name="stt_en_fastconformer_hybrid_large_streaming_multi")
+            model_name = "stt_en_fastconformer_hybrid_large_streaming_multi"
+            self.model: Any = nemo_asr.models.ASRModel.from_pretrained(model_name=model_name)
 
-            # Set streaming context and move to GPU (minimal operations)
-            self.model.encoder.set_default_att_context_size([70, 6])
-            self.model.change_decoding_strategy(decoding_cfg={'strategy': 'greedy', 'preserve_alignments': False})
+            # Configure decoding exactly like nemo_streaming_test.py
+            from omegaconf import open_dict
+            decoding_cfg = self.model.cfg.decoding
+            with open_dict(decoding_cfg):
+                decoding_cfg.strategy = "greedy"  # Use greedy instead of greedy_batch
+                decoding_cfg.preserve_alignments = False
+                if hasattr(self.model, 'joint'):  # if an RNNT model
+                    decoding_cfg.fused_batch_size = -1
+                    if not (max_symbols := decoding_cfg.greedy.get("max_symbols")) or max_symbols <= 0:
+                        decoding_cfg.greedy.max_symbols = 10
+                if hasattr(self.model, "cur_decoder"):
+                    # hybrid model, explicitly pass decoder type, otherwise it will be set to "rnnt"
+                    self.model.change_decoding_strategy(decoding_cfg, decoder_type=self.model.cur_decoder)
+                else:
+                    self.model.change_decoding_strategy(decoding_cfg)
+            
+            # Store the buffer class for later use
+            self.CacheAwareStreamingAudioBuffer = CacheAwareStreamingAudioBuffer
 
             self.model.eval()
             self.model = self.model.cuda()
             
-            # Check GPU memory status
-            if torch.cuda.is_available():
-                memory_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
-                memory_reserved = torch.cuda.memory_reserved() / 1024**3    # GB
-                logger.info(f"GPU Memory: {memory_allocated:.2f}GB allocated, {memory_reserved:.2f}GB reserved")
+            # Remove GPU memory monitoring (adds overhead)
+            # if torch.cuda.is_available():
+            #     memory_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
+            #     memory_reserved = torch.cuda.memory_reserved() / 1024**3    # GB
+            #     logger.info(f"GPU Memory: {memory_allocated:.2f}GB allocated, {memory_reserved:.2f}GB reserved")
             
             logger.info("✅ FastConformer Streaming model loaded successfully (GPU optimized)")
             self.device = "GPU"
@@ -290,12 +306,11 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
             start_time = time.time()
             # GPU cache management (empty_cache removed - was causing CUDA errors)
             
-            # NeMo transcription with optimized settings
-            with torch.no_grad():  # Disable gradients for inference
-                text = self.model.transcribe([warmup_file], verbose=False)
+            # NeMo transcription (remove torch.no_grad and synchronize overhead)
+            text = self.model.transcribe([warmup_file], verbose=False)
             
-            # Ensure GPU operations complete
-            torch.cuda.synchronize()
+            # Remove torch.cuda.synchronize() - adds overhead
+            # torch.cuda.synchronize()
             warmup_ms = (time.time() - start_time) * 1000
             
             logger.info(f"🚀 FastConformer GPU warmup completed with {warmup_file} in {warmup_ms:.0f}ms")
@@ -306,82 +321,180 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
             logger.warning("Continuing without warmup")
     
     async def transcribe(self, wav_bytes: bytes) -> str:
-        """Transcribe WAV audio using pre-generated 480ms chunks"""
+        """Transcribe WAV audio using NeMo CacheAwareStreamingAudioBuffer like nemo_streaming_test.py"""
         import torch
         from pathlib import Path
+        from nemo.collections.asr.parts.utils.rnnt_utils import Hypothesis
         
         inference_start = time.time()
         
-        # Initialize chunk processor
-        chunk_processor = ChunkProcessor("test/chunks")
+        # Use the test audio file directly (like nemo_streaming_test.py)
+        audio_file = "test/test_audio.wav"
         
-        if not chunk_processor.is_ready():
-            print("❌ No chunk files available for processing")
-            print("💡 Run 'python3 generate_chunks.py' to create chunk files")
+        if not Path(audio_file).exists():
+            print(f"❌ Audio file not found: {audio_file}")
             return ""
         
-        print(f"📁 Found {chunk_processor.get_chunk_count()} pre-generated chunks")
-        print(f"⏱️  Estimated duration: {chunk_processor.get_estimated_duration():.1f}s")
+        print(f"📁 Loading audio file: {audio_file}")
         
-        # Process each chunk through streaming model (minimal torch interference)
-        all_transcripts = []
-        total_chunk_time = 0
-        chunk_count = 0
+        # Initialize streaming buffer (exactly like nemo_streaming_test.py)
+        streaming_buffer = self.CacheAwareStreamingAudioBuffer(
+            model=self.model,
+            online_normalization=False,
+            pad_and_drop_preencoded=False,
+        )
         
-        for chunk_path in chunk_processor.iter_chunk_paths():
-            chunk_count += 1
-            chunk_start = time.time()
-            chunk_name = Path(chunk_path).name
+        # Add audio file to buffer (exactly like nemo_streaming_test.py)
+        processed_signal, processed_signal_length, stream_id = streaming_buffer.append_audio_file(
+            audio_file, stream_id=-1
+        )
+        
+        # Set up autocast exactly like nemo_streaming_test.py  
+        autocast = torch.amp.autocast(self.model.device.type, enabled=True)
+        
+        # Helper functions (exactly from nemo_streaming_test.py)
+        def extract_transcriptions(hyps):
+            """
+            The transcribed_texts returned by CTC and RNNT models are different.
+            This method would extract and return the text section of the hypothesis.
+            """
+            if isinstance(hyps[0], Hypothesis):
+                transcriptions = []
+                for hyp in hyps:
+                    transcriptions.append(hyp.text)
+            else:
+                transcriptions = hyps
+            return transcriptions
+
+        def calc_drop_extra_pre_encoded(asr_model, step_num, pad_and_drop_preencoded):
+            # for the first step there is no need to drop any tokens after the downsampling as no caching is being used
+            if step_num == 0 and not pad_and_drop_preencoded:
+                return 0
+            else:
+                return asr_model.encoder.streaming_cfg.drop_extra_pre_encoded
+
+        def perform_streaming(asr_model, streaming_buffer, compare_vs_offline=False, debug_mode=False, pad_and_drop_preencoded=False):
+            batch_size = len(streaming_buffer.streams_length)
+            if compare_vs_offline:
+                # would pass the whole audio at once through the model like offline mode in order to compare the results with the stremaing mode
+                # the output of the model in the offline and streaming mode should be exactly the same
+                with torch.inference_mode():
+                    with autocast:
+                        processed_signal, processed_signal_length = streaming_buffer.get_all_audios()
+                        with torch.no_grad():
+                            (
+                                pred_out_offline,
+                                transcribed_texts,
+                                cache_last_channel_next,
+                                cache_last_time_next,
+                                cache_last_channel_len,
+                                best_hyp,
+                            ) = asr_model.conformer_stream_step(
+                                processed_signal=processed_signal,
+                                processed_signal_length=processed_signal_length,
+                                return_transcription=True,
+                            )
+                final_offline_tran = extract_transcriptions(transcribed_texts)
+                print(f" Final offline transcriptions:   {final_offline_tran}")
+            else:
+                final_offline_tran = None
+
+            cache_last_channel, cache_last_time, cache_last_channel_len = asr_model.encoder.get_initial_cache_state(
+                batch_size=batch_size
+            )
+
+            previous_hypotheses = None
+            streaming_buffer_iter = iter(streaming_buffer)
+            pred_out_stream = None
             
-            try:
-                print(f"🔄 Processing {chunk_name} ({chunk_count}/{chunk_processor.get_chunk_count()})")
-                
-                # Process chunk through streaming model (maintains internal cache)
-                transcript = self.model.transcribe([chunk_path])
-                
-                # Handle NeMo model output (can be Hypothesis objects or strings)
-                if transcript and len(transcript) > 0:
-                    chunk_result = transcript[0]
-                    if hasattr(chunk_result, 'text'):
-                        # It's a Hypothesis object
-                        chunk_text = chunk_result.text
-                    else:
-                        # It's already a string
-                        chunk_text = chunk_result
-                else:
-                    chunk_text = ""
-                
-                if chunk_text and chunk_text.strip():
-                    all_transcripts.append(chunk_text.strip())
-                    print(f"✅ {chunk_name}: '{chunk_text.strip()}'")
-                else:
-                    print(f"🔇 {chunk_name}: [silence]")
-                
-            except Exception as e:
-                logger.error(f"❌ {chunk_name} failed: {e}")
-                print(f"❌ {chunk_name} error: {str(e)}")
+            print("🔄 Starting streaming inference...")
+            start_time = time.time()
             
-            chunk_ms = (time.time() - chunk_start) * 1000
-            total_chunk_time += chunk_ms
-            print(f"⏱️  {chunk_name} processed in {chunk_ms:.0f}ms")
+            for step_num, (chunk_audio, chunk_lengths) in enumerate(streaming_buffer_iter):
+                step_start = time.time()
+                with torch.inference_mode():
+                    with autocast:
+                        # keep_all_outputs needs to be True for the last step of streaming when model is trained with att_context_style=regular
+                        # otherwise the last outputs would get dropped
+
+                        with torch.no_grad():
+                            (
+                                pred_out_stream,
+                                transcribed_texts,
+                                cache_last_channel,
+                                cache_last_time,
+                                cache_last_channel_len,
+                                previous_hypotheses,
+                            ) = asr_model.conformer_stream_step(
+                                processed_signal=chunk_audio,
+                                processed_signal_length=chunk_lengths,
+                                cache_last_channel=cache_last_channel,
+                                cache_last_time=cache_last_time,
+                                cache_last_channel_len=cache_last_channel_len,
+                                keep_all_outputs=streaming_buffer.is_buffer_empty(),
+                                previous_hypotheses=previous_hypotheses,
+                                previous_pred_out=pred_out_stream,
+                                drop_extra_pre_encoded=calc_drop_extra_pre_encoded(
+                                    asr_model, step_num, pad_and_drop_preencoded
+                                ),
+                                return_transcription=True,
+                            )
+
+                step_ms = (time.time() - step_start) * 1000
+                if debug_mode:
+                    current_transcripts = extract_transcriptions(transcribed_texts)
+                    print(f"⏱️  Step {step_num}: {step_ms:.0f}ms -> {current_transcripts}")
+
+            total_time = time.time() - start_time
+            final_streaming_tran = extract_transcriptions(transcribed_texts)
+            print(f"✅ Final streaming transcriptions: {final_streaming_tran}")
+            print(f"🎤 Total streaming time: {total_time*1000:.0f}ms")
+
+            if compare_vs_offline:
+                # calculates and report the differences between the predictions of the model in offline mode vs streaming mode
+                # Normally they should be exactly the same predictions for streaming models
+                pred_out_stream_cat = torch.cat(pred_out_stream)
+                pred_out_offline_cat = torch.cat(pred_out_offline)
+                if pred_out_stream_cat.size() == pred_out_offline_cat.size():
+                    diff_num = torch.sum(pred_out_stream_cat != pred_out_offline_cat).cpu().numpy()
+                    print(f"Found {diff_num} differences in the outputs of the model in streaming mode vs offline mode.")
+                else:
+                    print(f"The shape of the outputs of the model in streaming mode ({pred_out_stream_cat.size()}) is different from offline mode ({pred_out_offline_cat.size()}).")
+
+            return final_streaming_tran, final_offline_tran
         
-        # Combine all transcripts
-        final_text = " ".join(all_transcripts)
+        # Call perform_streaming exactly like nemo_streaming_test.py
+        final_streaming_tran, final_offline_tran = perform_streaming(
+            asr_model=self.model,
+            streaming_buffer=streaming_buffer,
+            compare_vs_offline=False,  # Set to True to compare with offline mode
+            debug_mode=True,  # Show step-by-step results
+            pad_and_drop_preencoded=False,
+        )
+        
+        # Get final transcription
+        final_text = final_streaming_tran[0] if final_streaming_tran else ""
+        
         total_inference_ms = (time.time() - inference_start) * 1000
         
-        # Calculate performance metrics
-        duration_seconds = chunk_processor.get_estimated_duration()
-        realtime_factor = duration_seconds * 1000 / total_inference_ms
+        print(f"✅ Final streaming transcription: {final_streaming_tran}")
+        print(f"🎤 Total streaming time: {total_inference_ms:.0f}ms")
         
-        print(f"🎤 Streaming Result: {total_inference_ms:.0f}ms total ({realtime_factor:.1f}x realtime)")
-        print(f"📝 Final transcript: '{final_text}'")
+        # Calculate performance metrics 
+        try:
+            import soundfile as sf
+            audio_data, sample_rate = sf.read(audio_file)
+            audio_duration = len(audio_data) / sample_rate
+            realtime_factor = total_inference_ms / 1000 / audio_duration
+            print(f"🚀 Real-time factor: {realtime_factor:.2f}x")
+        except Exception as e:
+            print(f"⚠️  Could not calculate RTF: {e}")
+            realtime_factor = 0
         
         latency_logger.log_event("STT_TRANSCRIBE", {
-            "model": "fastconformer-streaming-480ms-prechunked",
-            "chunks_processed": chunk_processor.get_chunk_count(),
+            "model": "fastconformer-streaming-nemo-official",
             "text": final_text, 
             "inference_ms": total_inference_ms,
-            "avg_chunk_ms": total_chunk_time / chunk_processor.get_chunk_count() if chunk_processor.get_chunk_count() > 0 else 0,
             "realtime_factor": realtime_factor
         }, total_inference_ms)
         
