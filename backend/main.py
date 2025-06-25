@@ -253,26 +253,12 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
             self.model: Any = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained(
 				model_name="stt_en_fastconformer_hybrid_large_streaming_multi")
 
-            self.model.encoder.set_default_att_context_size([70, 6])  
+            # Set streaming context and move to GPU (minimal operations)
+            self.model.encoder.set_default_att_context_size([70, 6])
+            self.model.change_decoding_strategy(decoding_cfg={'strategy': 'greedy', 'preserve_alignments': False})
 
-            
-            # GPU memory management (empty_cache removed - was causing CUDA errors)
-            if torch.cuda.is_available():
-                torch.cuda.reset_peak_memory_stats()
-                torch.cuda.synchronize()
-            
-            # PyTorch optimizations with explicit GPU handling
             self.model.eval()
-            
-            # Move to GPU with explicit error handling
-            try:
-                self.model = self.model.cuda()
-                torch.cuda.synchronize()  # Ensure GPU operations complete
-            except RuntimeError as e:
-                logger.error(f"Failed to move model to GPU: {e}")
-                raise e
-            
-            # Final memory cleanup (empty_cache removed - was causing CUDA errors)
+            self.model = self.model.cuda()
             
             # Check GPU memory status
             if torch.cuda.is_available():
@@ -336,9 +322,8 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
         
         print(f"📁 Found {chunk_processor.get_chunk_count()} pre-generated chunks")
         print(f"⏱️  Estimated duration: {chunk_processor.get_estimated_duration():.1f}s")
-        print(f"🧠 GPU memory before processing: {torch.cuda.memory_allocated()/1024**3:.2f}GB")
         
-        # Process each chunk through streaming model
+        # Process each chunk through streaming model (minimal torch interference)
         all_transcripts = []
         total_chunk_time = 0
         chunk_count = 0
@@ -351,30 +336,26 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
             try:
                 print(f"🔄 Processing {chunk_name} ({chunk_count}/{chunk_processor.get_chunk_count()})")
                 
-                with torch.no_grad():
-                    # Process chunk through streaming model (maintains internal cache)
-                    transcript = self.model.transcribe([chunk_path])
-                    
-                    # Handle NeMo model output (can be Hypothesis objects or strings)
-                    if transcript and len(transcript) > 0:
-                        chunk_result = transcript[0]
-                        if hasattr(chunk_result, 'text'):
-                            # It's a Hypothesis object
-                            chunk_text = chunk_result.text
-                        else:
-                            # It's already a string
-                            chunk_text = chunk_result
-                    else:
-                        chunk_text = ""
-                    
-                    if chunk_text and chunk_text.strip():
-                        all_transcripts.append(chunk_text.strip())
-                        print(f"✅ {chunk_name}: '{chunk_text.strip()}'")
-                    else:
-                        print(f"🔇 {chunk_name}: [silence]")
+                # Process chunk through streaming model (maintains internal cache)
+                transcript = self.model.transcribe([chunk_path])
                 
-                # Ensure GPU operations complete
-                torch.cuda.synchronize()
+                # Handle NeMo model output (can be Hypothesis objects or strings)
+                if transcript and len(transcript) > 0:
+                    chunk_result = transcript[0]
+                    if hasattr(chunk_result, 'text'):
+                        # It's a Hypothesis object
+                        chunk_text = chunk_result.text
+                    else:
+                        # It's already a string
+                        chunk_text = chunk_result
+                else:
+                    chunk_text = ""
+                
+                if chunk_text and chunk_text.strip():
+                    all_transcripts.append(chunk_text.strip())
+                    print(f"✅ {chunk_name}: '{chunk_text.strip()}'")
+                else:
+                    print(f"🔇 {chunk_name}: [silence]")
                 
             except Exception as e:
                 logger.error(f"❌ {chunk_name} failed: {e}")
