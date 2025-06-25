@@ -4,6 +4,9 @@ FastAPI + WebSocket server for real-time audio streaming and order processing
 """
 
 import logging
+import signal
+import sys
+import multiprocessing
 from pathlib import Path
 
 import uvicorn
@@ -62,6 +65,24 @@ tts_processor = TTSProcessor()
 setup_routes(app, stt_processor, llm_reasoner, tts_processor)
 
 logger.info("✅ AI Order Taker Backend initialized successfully")
+
+def signal_handler(signum, frame):
+    """Kill all child processes on Ctrl+C"""
+    logger.info(f"🛑 Received signal {signum}, killing all processes...")
+    
+    # Kill all child processes
+    for child in multiprocessing.active_children():
+        logger.info(f"Killing child process: {child.pid}")
+        child.terminate()
+        child.join(timeout=1)
+        if child.is_alive():
+            child.kill()
+    
+    sys.exit(0)
+
+# Register signal handler
+signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
+signal.signal(signal.SIGTERM, signal_handler)  # Termination
 
 if __name__ == "__main__":
     uvicorn.run(
