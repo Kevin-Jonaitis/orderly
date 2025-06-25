@@ -239,9 +239,14 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
             import nemo.collections.asr as nemo_asr
             
             # Load pre-trained Parakeet model
-            self.model: Any = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
-                "stt_en_fastconformer_transducer_large"
+            self.model: Any = nemo_asr.models.ASRModel.from_pretrained(
+                model_name="nvidia/parakeet-tdt-0.6b-v2"
             )
+
+            # # Load pre-trained Parakeet model
+            # self.model: Any = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
+            #     "stt_en_fastconformer_transducer_large"
+            # )
             self.model.eval()
             self.model = self.model.cuda()
             
@@ -281,7 +286,7 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
             inference_start = time.time()
             
             # Parakeet transcription
-            transcript = self.model.transcribe([tmp_file.name])
+            transcript = self.model.transcribe([tmp_file.name], timestamps=False)
             text = transcript[0] if transcript and len(transcript) > 0 else ""
             
             inference_ms = (time.time() - inference_start) * 1000
