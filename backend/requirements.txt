@@ -9,7 +9,12 @@ torchaudio>=2.0.0
 numpy>=1.20.0
 
 # LLM dependencies
-llama-cpp-python[server]>=0.2.0
+# NOTE: For GPU acceleration, install with CUDA support:
+# export CUDA_HOME=/usr/local/cuda
+# export PATH=$CUDA_HOME/bin:$PATH 
+# export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+# CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --force-reinstall --no-cache-dir
+llama-cpp-python>=0.3.9
 
 # Parakeet STT dependencies (optional)
 # Option 1: NeMo toolkit (full featured)

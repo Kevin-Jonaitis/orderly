@@ -128,7 +128,7 @@ def setup_routes(app: FastAPI, stt_processor, llm_reasoner, tts_processor):
             current_order.extend(new_items)
             
             # Step 4: Generate response
-            response_text = await llm_reasoner.generate_response(new_items)
+            response_text = await llm_reasoner.generate_response("TO CHANGE: MY TEXT")
             
             # Step 5: TTS
             audio_response = await tts_processor.synthesize(response_text)

@@ -25,6 +25,7 @@ A real-time AI-powered order taking system with streaming audio and intelligent 
 
 ### Current LLM Implementation
 - ✅ **Phi-3 Mini**: Order reasoning with llama.cpp (Q4 quantized)
+- ✅ **GPU Acceleration**: CUDA-optimized inference (~1s response time)
 - ✅ **KV Cache**: Enabled for faster inference
 - ✅ **Configurable prompts**: Easy system prompt modification
 
@@ -63,6 +64,12 @@ python3 setup_env.py
 # Download Phi-3 Mini model (required for LLM)
 mkdir -p models
 curl -L -o models/Phi-3-mini-4k-instruct-q4.gguf https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf
+
+# Enable GPU acceleration for LLM (requires CUDA)
+export CUDA_HOME=/usr/local/cuda
+export PATH=$CUDA_HOME/bin:$PATH 
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --force-reinstall --no-cache-dir
 ```
 
 ### Development Mode (Hot Reload)
