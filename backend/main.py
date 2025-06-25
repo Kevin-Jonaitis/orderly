@@ -144,28 +144,50 @@ class STTProcessor:
         self._warmup_model()
     
     def _warmup_model(self):
-        """Warm up the model with a dummy inference to avoid cold start"""
-        import numpy as np
-        import wave
+        """Warm up the model with actual audio file to avoid cold start"""
+        warmup_file = "test/warm_up.wav"
         
-        # Create a short dummy audio file (1 second of silence)
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
-            with wave.open(tmp_file.name, 'w') as wav_file:
-                wav_file.setnchannels(1)  # Mono
-                wav_file.setsampwidth(2)  # 16-bit
-                wav_file.setframerate(16000)  # 16kHz
-                wav_file.writeframes(np.zeros(16000, dtype=np.int16).tobytes())
-            
-            # Warm up inference
+        try:
             start_time = time.time()
-            segments, _ = self.model.transcribe(tmp_file.name, beam_size=1)
-            list(segments)  # Force evaluation
+            segments, _ = self.model.transcribe(
+                warmup_file,
+                beam_size=1,
+                best_of=1,
+                temperature=0,
+                condition_on_previous_text=False,
+                word_timestamps=False,
+                language="en",
+                task="transcribe",
+                vad_filter=False,
+                vad_parameters=None
+            )
+            # Force evaluation of all segments
+            list(segments)
             warmup_ms = (time.time() - start_time) * 1000
             
-            import os
-            os.unlink(tmp_file.name)
+            logger.info(f"🚀 GPU warmup completed with {warmup_file} in {warmup_ms:.0f}ms")
             
-        logger.info(f"🚀 GPU warmup completed in {warmup_ms:.0f}ms")
+        except FileNotFoundError:
+            logger.warning(f"Warmup file not found: {warmup_file}, using fallback warmup")
+            # Fallback to simple dummy warmup
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+                import numpy as np
+                import wave
+                with wave.open(tmp_file.name, 'w') as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)
+                    wav_file.setframerate(16000)
+                    wav_file.writeframes(np.zeros(16000, dtype=np.int16).tobytes())
+                
+                start_time = time.time()
+                segments, _ = self.model.transcribe(tmp_file.name, beam_size=1)
+                list(segments)
+                warmup_ms = (time.time() - start_time) * 1000
+                
+                import os
+                os.unlink(tmp_file.name)
+                
+            logger.info(f"🚀 GPU fallback warmup completed in {warmup_ms:.0f}ms")
     
     async def transcribe(self, wav_bytes: bytes) -> str:
         """Transcribe WAV audio bytes to text"""
@@ -301,42 +323,69 @@ async def websocket_audio(websocket: WebSocket):
     
     try:
         while True:
-            # Receive audio chunk
-            webm_chunk = await websocket.receive_bytes()
+            # === ORIGINAL AUDIO PROCESSING (COMMENTED OUT FOR TESTING) ===
+            # # Receive audio chunk
+            # webm_chunk = await websocket.receive_bytes()
+            # 
+            # # Accumulate chunks
+            # audio_accumulator[connection_id] += webm_chunk
+            # accumulated_audio = audio_accumulator[connection_id]
+            # 
+            # print(f"Accumulating... Total WebM bytes: {len(accumulated_audio)}")
+            # 
+            # # Try to convert accumulated audio every 3 chunks (to reduce processing load)
+            # chunk_count = len(accumulated_audio) // 16422  # Approximate chunks received
+            # 
+            # if chunk_count > 0 and chunk_count % 3 == 0:  # Every 3 chunks
+            #     wav_chunk = convert_webm_to_wav(accumulated_audio)
+            #     
+            #     if wav_chunk:
+            #         # Save WAV chunk for debugging
+            #         timestamp = int(time.time() * 1000)
+            #         filename = f"audio_accumulated_{timestamp}.wav"
+            #         with open(f"audio_debug/{filename}", "wb") as f:
+            #             f.write(wav_chunk)
+            #         
+            #         print(f"CONVERSION SUCCESS: WebM {len(accumulated_audio)} bytes → WAV {len(wav_chunk)} bytes")
+            #         print(f"WAV header: {wav_chunk[:12]}")
+            #         
+            #         # Process audio through pipeline
+            #         await process_audio_pipeline(wav_chunk, websocket)
+            #     else:
+            #         print(f"Conversion failed for {len(accumulated_audio)} bytes")
+            # 
+            # # Log audio received
+            # latency_logger.log_event("AUDIO_RECEIVED", {
+            #     "chunk_size": len(webm_chunk),
+            #     "accumulated_size": len(accumulated_audio),
+            #     "estimated_chunks": chunk_count
+            # })
             
-            # Accumulate chunks
-            audio_accumulator[connection_id] += webm_chunk
-            accumulated_audio = audio_accumulator[connection_id]
+            # === TEST MODE: USE STATIC WAV FILE ===
+            # Still receive bytes to maintain WebSocket protocol
+            await websocket.receive_bytes()
             
-            print(f"Accumulating... Total WebM bytes: {len(accumulated_audio)}")
-            
-            # Try to convert accumulated audio every 3 chunks (to reduce processing load)
-            chunk_count = len(accumulated_audio) // 16422  # Approximate chunks received
-            
-            if chunk_count > 0 and chunk_count % 3 == 0:  # Every 3 chunks
-                wav_chunk = convert_webm_to_wav(accumulated_audio)
+            # Load test WAV file instead of processing real audio
+            test_wav_path = "test/test_audio.wav"
+            try:
+                with open(test_wav_path, "rb") as f:
+                    wav_bytes = f.read()
                 
-                if wav_chunk:
-                    # Save WAV chunk for debugging
-                    timestamp = int(time.time() * 1000)
-                    filename = f"audio_accumulated_{timestamp}.wav"
-                    with open(f"audio_debug/{filename}", "wb") as f:
-                        f.write(wav_chunk)
-                    
-                    print(f"CONVERSION SUCCESS: WebM {len(accumulated_audio)} bytes → WAV {len(wav_chunk)} bytes")
-                    print(f"WAV header: {wav_chunk[:12]}")
-                    
-                    # Process audio through pipeline
-                    await process_audio_pipeline(wav_chunk, websocket)
-                else:
-                    print(f"Conversion failed for {len(accumulated_audio)} bytes")
-            
-            # Log audio received
-            latency_logger.log_event("AUDIO_RECEIVED", {
-                "chunk_size": len(webm_chunk),
-                "accumulated_size": len(accumulated_audio),
-                "estimated_chunks": chunk_count
-            })
+                print(f"📁 Loading test file: {test_wav_path} ({len(wav_bytes)} bytes)")
+                
+                # Process test audio through STT pipeline
+                await process_audio_pipeline(wav_bytes, websocket)
+                
+                # Log test audio processing
+                latency_logger.log_event("AUDIO_RECEIVED", {
+                    "test_file": test_wav_path,
+                    "wav_size": len(wav_bytes)
+                })
+                
+            except FileNotFoundError:
+                print(f"❌ Test file not found: {test_wav_path}")
+                print("💡 Create a test WAV file at test/test_audio.wav")
+                await asyncio.sleep(1)  # Prevent spam
             
     except WebSocketDisconnect:
         logger.info("Audio WebSocket disconnected")
