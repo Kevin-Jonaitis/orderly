@@ -138,17 +138,44 @@ class STTProcessor:
         )
         logger.info("✅ Faster-Whisper GPU model loaded successfully")
         self.device = "GPU"
+        
+        # Warm up the model with a dummy inference
+        logger.info("🔥 Warming up GPU model...")
+        self._warmup_model()
+    
+    def _warmup_model(self):
+        """Warm up the model with a dummy inference to avoid cold start"""
+        import numpy as np
+        import wave
+        
+        # Create a short dummy audio file (1 second of silence)
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+            with wave.open(tmp_file.name, 'w') as wav_file:
+                wav_file.setnchannels(1)  # Mono
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(16000)  # 16kHz
+                wav_file.writeframes(np.zeros(16000, dtype=np.int16).tobytes())
+            
+            # Warm up inference
+            start_time = time.time()
+            segments, _ = self.model.transcribe(tmp_file.name, beam_size=1)
+            list(segments)  # Force evaluation
+            warmup_ms = (time.time() - start_time) * 1000
+            
+            import os
+            os.unlink(tmp_file.name)
+            
+        logger.info(f"🚀 GPU warmup completed in {warmup_ms:.0f}ms")
     
     async def transcribe(self, wav_bytes: bytes) -> str:
         """Transcribe WAV audio bytes to text"""
-        start_time = time.time()
-        
         # Save to temporary file
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
             tmp_file.write(wav_bytes)
             tmp_file.flush()
             
-            # Transcribe with maximum speed settings
+            # Time the complete inference process
+            inference_start = time.time()
             segments, info = self.model.transcribe(
                 tmp_file.name,
                 beam_size=1,           # Fastest decoding
@@ -162,21 +189,25 @@ class STTProcessor:
                 vad_parameters=None
             )
             
-            # Process segments immediately
+            # Process segments (where the real work happens)
             text = " ".join([segment.text.strip() for segment in segments])
+            inference_ms = (time.time() - inference_start) * 1000
             
         # Cleanup
         import os
         os.unlink(tmp_file.name)
         
-        # Log performance
-        total_ms = (time.time() - start_time) * 1000
+        # Calculate performance metrics
         duration_seconds = len(wav_bytes) / (16000 * 2)  # Approximate duration
-        realtime_factor = duration_seconds * 1000 / total_ms
+        realtime_factor = duration_seconds * 1000 / inference_ms
         
-        print(f"🎤 STT: {total_ms:.0f}ms ({realtime_factor:.1f}x realtime) → '{text[:50]}{'...' if len(text) > 50 else '}'}")
+        print(f"🎤 STT: {inference_ms:.0f}ms ({realtime_factor:.1f}x realtime) → '{text}'")
         
-        latency_logger.log_event("STT_TRANSCRIBE", {"text": text, "realtime_factor": realtime_factor}, total_ms)
+        latency_logger.log_event("STT_TRANSCRIBE", {
+            "text": text, 
+            "inference_ms": inference_ms,
+            "realtime_factor": realtime_factor
+        }, inference_ms)
         
         return text.strip()
 
