@@ -7,3 +7,9 @@ faster-whisper==1.0.1
 torch>=2.0.0
 torchaudio>=2.0.0
 numpy>=1.20.0
+
+# Parakeet STT dependencies (optional)
+# Uncomment to use Parakeet:
+# nemo_toolkit[asr]>=1.20.0
+# omegaconf>=2.3.0
+# hydra-core>=1.3.0

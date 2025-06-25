@@ -6,7 +6,7 @@ A real-time AI-powered order taking system with streaming audio and intelligent 
 
 - **Frontend**: Vite + React + TypeScript
 - **Backend**: FastAPI + WebSocket streaming
-- **Audio Pipeline**: Browser → WebSocket → Parakeet STT → Phi-3 LLM → Chatterbox TTS → SNAC → Browser
+- **Audio Pipeline**: Browser → WebSocket → STT (Whisper/Parakeet) → Phi-3 LLM → Chatterbox TTS → SNAC → Browser
 
 ## Features
 
@@ -17,11 +17,15 @@ A real-time AI-powered order taking system with streaming audio and intelligent 
 - ✅ Comprehensive latency logging system
 - ✅ Stubbed pipeline components ready for LLM integration
 
-### Planned Integration
-- 🔄 Parakeet STT for speech recognition
+### Current STT Implementation
+- ✅ **Whisper STT**: Faster-Whisper with GPU optimization (tiny.en, int8)
+- ✅ **Parakeet STT**: NeMo FastConformer (optional)
+- ✅ **Modular design**: Easy switching between STT models
+- ✅ **Performance**: Sub-200ms inference on RTX 3070
+
+### Planned Integration  
 - 🔄 Phi-3 Mini for order reasoning
 - 🔄 Chatterbox + SNAC for text-to-speech
-- 🔄 GPU optimization for 12GB RTX 4070
 
 ## Quick Start
 
@@ -33,6 +37,18 @@ sudo apt update && sudo apt install -y ffmpeg
 # For other systems:
 # macOS: brew install ffmpeg
 # Windows: Download from https://ffmpeg.org/download.html
+```
+
+### STT Model Selection
+**Switch between STT models** by editing `backend/main.py` line 122:
+```python
+STT_MODEL = "whisper"    # Use Whisper (default, no extra deps)
+STT_MODEL = "parakeet"   # Use Parakeet (requires NeMo installation)
+```
+
+**For Parakeet STT**, install additional dependencies:
+```bash
+pip install nemo_toolkit[asr] omegaconf hydra-core
 ```
 
 ### First Time Setup

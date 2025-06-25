@@ -115,20 +115,32 @@ def convert_webm_to_wav(webm_bytes: bytes) -> bytes:
 
 # STT components
 import tempfile
-from faster_whisper import WhisperModel
+from abc import ABC, abstractmethod
 
-class STTProcessor:
+# ================== STT MODEL SELECTION ==================
+# Change this variable to switch between STT models
+STT_MODEL = "parakeet"  # Options: "whisper", "parakeet"
+# ==========================================================
+
+class BaseSTTProcessor(ABC):
+    """Abstract base class for STT processors"""
+    
+    @abstractmethod
+    async def transcribe(self, wav_bytes: bytes) -> str:
+        pass
+
+class WhisperSTTProcessor(BaseSTTProcessor):
     """Real-time STT using Faster-Whisper"""
     
     def __init__(self):
-        # GPU-only implementation with optimized settings
+        from faster_whisper import WhisperModel
         import os
         
         # Suppress various warning outputs
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
         
-        logger.info("Loading Faster-Whisper model (base.en, GPU optimized, int8)")
+        logger.info("Loading Faster-Whisper model (tiny.en, GPU optimized, int8)")
         self.model = WhisperModel(
             "tiny.en", 
             device="cuda", 
@@ -139,8 +151,8 @@ class STTProcessor:
         logger.info("✅ Faster-Whisper GPU model loaded successfully")
         self.device = "GPU"
         
-        # Warm up the model with a dummy inference
-        logger.info("🔥 Warming up GPU model...")
+        # Warm up the model
+        logger.info("🔥 Warming up Whisper GPU model...")
         self._warmup_model()
     
     def _warmup_model(self):
@@ -210,6 +222,98 @@ class STTProcessor:
         }, inference_ms)
         
         return text.strip()
+
+class ParakeetSTTProcessor(BaseSTTProcessor):
+    """Real-time STT using Parakeet (NeMo ASR)"""
+    
+    def __init__(self):
+        import os
+        
+        # Suppress various warning outputs  
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+        os.environ['HYDRA_FULL_ERROR'] = '1'
+        
+        logger.info("Loading Parakeet ASR model (FastConformer, GPU optimized)")
+        
+        try:
+            import nemo.collections.asr as nemo_asr
+            
+            # Load pre-trained Parakeet model
+            self.model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
+                "stt_en_fastconformer_transducer_large"
+            )
+            self.model.eval()
+            self.model = self.model.cuda()
+            
+            logger.info("✅ Parakeet ASR model loaded successfully")
+            self.device = "GPU"
+            
+            # Warm up the model
+            logger.info("🔥 Warming up Parakeet GPU model...")
+            self._warmup_model()
+            
+        except ImportError as e:
+            logger.error("❌ NeMo toolkit not installed. Install with: pip install nemo_toolkit[asr]")
+            raise e
+        except Exception as e:
+            logger.error(f"❌ Failed to load Parakeet model: {e}")
+            raise e
+    
+    def _warmup_model(self):
+        """Warm up the model with actual audio file to avoid cold start"""
+        warmup_file = "test/warm_up.wav"
+        
+        start_time = time.time()
+        # Parakeet transcription (will be implemented)
+        text = self.model.transcribe([warmup_file])
+        warmup_ms = (time.time() - start_time) * 1000
+        
+        logger.info(f"🚀 Parakeet GPU warmup completed with {warmup_file} in {warmup_ms:.0f}ms")
+    
+    async def transcribe(self, wav_bytes: bytes) -> str:
+        """Transcribe WAV audio bytes to text using Parakeet"""
+        # Save to temporary file
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+            tmp_file.write(wav_bytes)
+            tmp_file.flush()
+            
+            # Time the complete inference process
+            inference_start = time.time()
+            
+            # Parakeet transcription
+            transcript = self.model.transcribe([tmp_file.name])
+            text = transcript[0] if transcript and len(transcript) > 0 else ""
+            
+            inference_ms = (time.time() - inference_start) * 1000
+            
+        # Cleanup
+        import os
+        os.unlink(tmp_file.name)
+        
+        # Calculate performance metrics
+        duration_seconds = len(wav_bytes) / (16000 * 2)  # Approximate duration
+        realtime_factor = duration_seconds * 1000 / inference_ms
+        
+        print(f"🎤 Parakeet STT: {inference_ms:.0f}ms ({realtime_factor:.1f}x realtime) → '{text}'")
+        
+        latency_logger.log_event("STT_TRANSCRIBE", {
+            "model": "parakeet",
+            "text": text, 
+            "inference_ms": inference_ms,
+            "realtime_factor": realtime_factor
+        }, inference_ms)
+        
+        return text.strip()
+
+# ================== STT FACTORY ==================
+def create_stt_processor() -> BaseSTTProcessor:
+    """Factory function to create the selected STT processor"""
+    if STT_MODEL == "whisper":
+        return WhisperSTTProcessor()
+    elif STT_MODEL == "parakeet":
+        return ParakeetSTTProcessor()
+    else:
+        raise ValueError(f"Unknown STT model: {STT_MODEL}. Options: 'whisper', 'parakeet'")
 
 class LLMReasoner:
     """Stub for Phi-3 Mini reasoning LLM"""
@@ -285,7 +389,7 @@ class TTSProcessor:
         return audio_data
 
 # Initialize processors
-stt_processor = STTProcessor()
+stt_processor = create_stt_processor()
 llm_reasoner = LLMReasoner()
 tts_processor = TTSProcessor()
 
