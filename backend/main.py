@@ -130,7 +130,7 @@ class STTProcessor:
         
         logger.info("Loading Faster-Whisper model (base.en, GPU optimized, int8)")
         self.model = WhisperModel(
-            "base.en", 
+            "tiny.en", 
             device="cuda", 
             compute_type="int8",
             device_index=0,
@@ -147,47 +147,25 @@ class STTProcessor:
         """Warm up the model with actual audio file to avoid cold start"""
         warmup_file = "test/warm_up.wav"
         
-        try:
-            start_time = time.time()
-            segments, _ = self.model.transcribe(
-                warmup_file,
-                beam_size=1,
-                best_of=1,
-                temperature=0,
-                condition_on_previous_text=False,
-                word_timestamps=False,
-                language="en",
-                task="transcribe",
-                vad_filter=False,
-                vad_parameters=None
-            )
-            # Force evaluation of all segments
-            list(segments)
-            warmup_ms = (time.time() - start_time) * 1000
-            
-            logger.info(f"🚀 GPU warmup completed with {warmup_file} in {warmup_ms:.0f}ms")
-            
-        except FileNotFoundError:
-            logger.warning(f"Warmup file not found: {warmup_file}, using fallback warmup")
-            # Fallback to simple dummy warmup
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
-                import numpy as np
-                import wave
-                with wave.open(tmp_file.name, 'w') as wav_file:
-                    wav_file.setnchannels(1)
-                    wav_file.setsampwidth(2)
-                    wav_file.setframerate(16000)
-                    wav_file.writeframes(np.zeros(16000, dtype=np.int16).tobytes())
-                
-                start_time = time.time()
-                segments, _ = self.model.transcribe(tmp_file.name, beam_size=1)
-                list(segments)
-                warmup_ms = (time.time() - start_time) * 1000
-                
-                import os
-                os.unlink(tmp_file.name)
-                
-            logger.info(f"🚀 GPU fallback warmup completed in {warmup_ms:.0f}ms")
+        start_time = time.time()
+        segments, _ = self.model.transcribe(
+            warmup_file,
+            beam_size=1,
+            best_of=1,
+            temperature=0,
+            condition_on_previous_text=False,
+            word_timestamps=False,
+            language="en",
+            task="transcribe",
+            vad_filter=False,
+            vad_parameters=None
+        )
+        # Force evaluation of all segments
+        list(segments)
+        warmup_ms = (time.time() - start_time) * 1000
+        
+        logger.info(f"🚀 GPU warmup completed with {warmup_file} in {warmup_ms:.0f}ms")
+		
     
     async def transcribe(self, wav_bytes: bytes) -> str:
         """Transcribe WAV audio bytes to text"""
@@ -203,7 +181,7 @@ class STTProcessor:
                 beam_size=1,           # Fastest decoding
                 best_of=1,             # No multiple candidates
                 temperature=0,         # Deterministic output
-                condition_on_previous_text=False,  # No context carryover
+                condition_on_previous_text=True,  # No context carryover
                 word_timestamps=False, # Skip word-level timestamps
                 language="en",
                 task="transcribe",
