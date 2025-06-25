@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any
 from llama_cpp import Llama
+import torch
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,9 @@ class LLMReasoner:
         )
         
         self.menu_context = self.load_menu_context()
+        
+        # Log initial GPU memory usage
+        self._log_gpu_memory("LLM_INIT")
     
     def load_menu_context(self) -> str:
         """Load menu context from uploaded files"""
@@ -74,6 +78,9 @@ class LLMReasoner:
         )
         
         response_text = response['choices'][0]['text'].strip()
+        
+        # Log GPU memory and KV cache after inference
+        self._log_gpu_memory("INFERENCE")
         
         # For now, return mock items - TODO: parse response into actual OrderItems
         items = [
@@ -102,7 +109,40 @@ class LLMReasoner:
         
         response_text = response['choices'][0]['text'].strip()
         
+        # Log GPU memory after response generation
+        self._log_gpu_memory("RESPONSE")
+        
         latency_ms = (time.time() - start_time) * 1000
         logger.info(f"LLM_RESPONSE: {latency_ms:.0f}ms - {response_text}")
         
         return response_text
+    
+    def _log_gpu_memory(self, context: str):
+        """Log GPU memory usage and KV cache stats"""
+        if torch.cuda.is_available():
+            gpu_allocated = torch.cuda.memory_allocated() / (1024*1024)
+            gpu_reserved = torch.cuda.memory_reserved() / (1024*1024)
+            kv_tokens = getattr(self.llm, 'n_tokens', 0)
+            kv_max = getattr(self.llm, 'n_ctx', lambda: 2048)()
+            kv_size_mb = kv_tokens * 1024 / (1024*1024)  # Rough estimate: 1KB per token
+            
+            logger.info(f"GPU_MEMORY_{context}: {gpu_allocated:.1f}MB allocated, {gpu_reserved:.1f}MB reserved | KV_CACHE: {kv_tokens}/{kv_max} tokens (~{kv_size_mb:.1f}MB)")
+        else:
+            logger.info(f"GPU_MEMORY_{context}: CUDA not available")
+    
+    def get_memory_stats(self) -> Dict[str, Any]:
+        """Get detailed memory statistics"""
+        stats = {
+            "kv_tokens_used": getattr(self.llm, 'n_tokens', 0),
+            "kv_tokens_max": getattr(self.llm, 'n_ctx', lambda: 2048)(),
+            "kv_cache_mb_estimate": getattr(self.llm, 'n_tokens', 0) * 1024 / (1024*1024)
+        }
+        
+        if torch.cuda.is_available():
+            stats.update({
+                "gpu_allocated_mb": torch.cuda.memory_allocated() / (1024*1024),
+                "gpu_reserved_mb": torch.cuda.memory_reserved() / (1024*1024),
+                "gpu_max_allocated_mb": torch.cuda.max_memory_allocated() / (1024*1024)
+            })
+        
+        return stats

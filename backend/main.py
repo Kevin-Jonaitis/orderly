@@ -78,6 +78,16 @@ def signal_handler(signum, frame):
         if child.is_alive():
             child.kill()
     
+    # Clear GPU memory cache if available
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            logger.info("🧹 GPU memory cache cleared")
+    except ImportError:
+        pass
+    
+    logger.info("👋 Backend shutdown complete")
     sys.exit(0)
 
 # Register signal handler
