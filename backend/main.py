@@ -6,6 +6,7 @@ FastAPI + WebSocket server for real-time audio streaming and order processing
 import asyncio
 import json
 import logging
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -40,11 +41,13 @@ class Order(BaseModel):
 current_order: List[OrderItem] = []
 active_connections: List[WebSocket] = []
 order_connections: List[WebSocket] = []
+audio_accumulator: Dict[str, bytes] = {}  # Store accumulated audio per connection
 
 # Create directories
 Path("logs").mkdir(exist_ok=True)
 Path("menus").mkdir(exist_ok=True)
 Path("uploads").mkdir(exist_ok=True)
+Path("audio_debug").mkdir(exist_ok=True)
 
 app = FastAPI(title="AI Order Taker Backend")
 
@@ -82,6 +85,33 @@ class LatencyLogger:
         logger.info(f"{event_type}: {latency_ms}ms" if latency_ms else f"{event_type}")
 
 latency_logger = LatencyLogger()
+
+def convert_webm_to_wav(webm_bytes: bytes) -> bytes:
+    """Convert WebM audio bytes to WAV format for STT processing"""
+    try:
+        # Add ffmpeg flags to handle fragmented/incomplete WebM
+        result = subprocess.run([
+            'ffmpeg', 
+            '-hide_banner', '-loglevel', 'error',  # Reduce noise
+            '-i', 'pipe:0',           # Read from stdin
+            '-f', 'wav',              # Output WAV format
+            '-ac', '1',               # Mono audio
+            '-ar', '16000',           # 16kHz sample rate
+            '-acodec', 'pcm_s16le',   # 16-bit PCM
+            '-fflags', '+genpts',     # Generate timestamps for incomplete streams
+            '-avoid_negative_ts', 'make_zero',  # Handle timing issues
+            'pipe:1'                  # Write to stdout
+        ], 
+        input=webm_bytes, 
+        capture_output=True,
+        check=True
+        )
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        # Log more details about the failure
+        stderr_output = e.stderr.decode('utf-8') if e.stderr else "No stderr"
+        logger.error(f"FFmpeg conversion failed (exit {e.returncode}): {stderr_output}")
+        return b""
 
 # Stub components for the full pipeline
 class STTProcessor:
@@ -185,25 +215,63 @@ async def websocket_audio(websocket: WebSocket):
     """WebSocket endpoint for audio streaming"""
     await websocket.accept()
     active_connections.append(websocket)
+    connection_id = str(id(websocket))
+    audio_accumulator[connection_id] = b""
     
     logger.info("Audio WebSocket connected")
     
     try:
         while True:
             # Receive audio chunk
-            audio_chunk = await websocket.receive_bytes()
+            webm_chunk = await websocket.receive_bytes()
+            
+            # Accumulate chunks
+            audio_accumulator[connection_id] += webm_chunk
+            accumulated_audio = audio_accumulator[connection_id]
+            
+            print(f"Accumulating... Total WebM bytes: {len(accumulated_audio)}")
+            
+            # Try to convert accumulated audio every 3 chunks (to reduce processing load)
+            chunk_count = len(accumulated_audio) // 16422  # Approximate chunks received
+            
+            if chunk_count > 0 and chunk_count % 3 == 0:  # Every 3 chunks
+                wav_chunk = convert_webm_to_wav(accumulated_audio)
+                
+                if wav_chunk:
+                    # Save WAV chunk for debugging
+                    timestamp = int(time.time() * 1000)
+                    filename = f"audio_accumulated_{timestamp}.wav"
+                    with open(f"audio_debug/{filename}", "wb") as f:
+                        f.write(wav_chunk)
+                    
+                    print(f"CONVERSION SUCCESS: WebM {len(accumulated_audio)} bytes → WAV {len(wav_chunk)} bytes")
+                    print(f"WAV header: {wav_chunk[:12]}")
+                    
+                    # Process audio through pipeline
+                    await process_audio_pipeline(wav_chunk, websocket)
+                else:
+                    print(f"Conversion failed for {len(accumulated_audio)} bytes")
             
             # Log audio received
             latency_logger.log_event("AUDIO_RECEIVED", {
-                "chunk_size": len(audio_chunk)
+                "chunk_size": len(webm_chunk),
+                "accumulated_size": len(accumulated_audio),
+                "estimated_chunks": chunk_count
             })
-            
-            # Process audio through pipeline
-            await process_audio_pipeline(audio_chunk, websocket)
             
     except WebSocketDisconnect:
         logger.info("Audio WebSocket disconnected")
-        active_connections.remove(websocket)
+        if websocket in active_connections:
+            active_connections.remove(websocket)
+        # Clean up accumulator
+        if connection_id in audio_accumulator:
+            del audio_accumulator[connection_id]
+    except Exception as e:
+        logger.error(f"Error in audio WebSocket: {e}")
+        if websocket in active_connections:
+            active_connections.remove(websocket)
+        if connection_id in audio_accumulator:
+            del audio_accumulator[connection_id]
 
 @app.websocket("/ws/order")
 async def websocket_order(websocket: WebSocket):
@@ -255,16 +323,20 @@ async def process_audio_pipeline(audio_chunk: bytes, websocket: WebSocket):
         await broadcast_order_update()
         
         # Send transcription back
-        await websocket.send_text(json.dumps({
-            "type": "transcription",
-            "text": transcribed_text
-        }))
-        
-        # Send audio response (stub for now)
-        await websocket.send_text(json.dumps({
-            "type": "audio_response",
-            "text": response_text
-        }))
+        try:
+            await websocket.send_text(json.dumps({
+                "type": "transcription",
+                "text": transcribed_text
+            }))
+            
+            # Send audio response (stub for now)
+            await websocket.send_text(json.dumps({
+                "type": "audio_response",
+                "text": response_text
+            }))
+        except Exception as e:
+            logger.error(f"Error sending WebSocket message: {e}")
+            raise  # Re-raise to trigger disconnection cleanup
         
         # Log total pipeline latency
         total_latency = (time.time() - pipeline_start) * 1000

@@ -25,6 +25,16 @@ A real-time AI-powered order taking system with streaming audio and intelligent 
 
 ## Quick Start
 
+### System Requirements
+```bash
+# Install system dependencies (Ubuntu/Debian/WSL)
+sudo apt update && sudo apt install -y ffmpeg
+
+# For other systems:
+# macOS: brew install ffmpeg
+# Windows: Download from https://ffmpeg.org/download.html
+```
+
 ### First Time Setup
 ```bash
 # Setup virtual environment and install all dependencies

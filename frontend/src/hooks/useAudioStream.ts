@@ -100,7 +100,7 @@ export function useAudioStream() {
       };
 
       // Start recording with 100ms chunks for real-time streaming
-      mediaRecorder.start(100);
+      mediaRecorder.start(1000);
       setIsRecording(true);
 
       console.log('Recording started');
