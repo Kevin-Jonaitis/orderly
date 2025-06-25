@@ -113,6 +113,15 @@ class WhisperSTTProcessor(BaseSTTProcessor):
 class ParakeetSTTProcessor(BaseSTTProcessor):
     """Real-time STT using Parakeet (NeMo ASR) - stripped down to match nemo_streaming_test.py exactly"""
     
+    # Latency options for att_context_size:
+    # [70, 0] = 0ms latency
+    # [70, 1] = 80ms latency  
+    # [70, 16] = 480ms latency (previous default)
+    # [70, 33] = 1040ms latency
+    ATT_CONTEXT_SIZE = [70, 1]  # Currently set to 80ms latency
+    # ATT_CONTEXT_SIZE = [70, 33] # 1040ms latency
+
+    
     def __init__(self):
         import torch
         
@@ -151,6 +160,10 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
             
             # Store the buffer class for later use
             self.CacheAwareStreamingAudioBuffer = CacheAwareStreamingAudioBuffer
+            
+            # Set attention context size for streaming latency
+            logger.info(f"🔧 Setting att_context_size to {self.ATT_CONTEXT_SIZE} (80ms latency)")
+            self.model.encoder.set_default_att_context_size(self.ATT_CONTEXT_SIZE)
             
             logger.info("✅ FastConformer model loaded successfully")
             
