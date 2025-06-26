@@ -44,16 +44,16 @@ class LLMReasoner:
         
         # Load model with GPU acceleration  
         # model_path = Path(__file__).parent.parent.parent / "models" / "phi-3-mini-4k-instruct-q4_k_s.gguf"  # Q4_K_S (2.0GB) - 30% faster than Q4, potentially, if it has less tokens
-        # model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-mini-4k-instruct-q4.gguf"  # Q4 (2.2GB) - slower baseline
-        model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-medium-4k-instruct.gguf"  # Q4 (2.2GB) - slower baseline
+        model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-mini-4k-instruct-q4.gguf"  # Q4 (2.2GB) - slower baseline
+        # model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-medium-4k-instruct.gguf"  # Q4 8GB or something like that
         # model_path = Path(__file__).parent.parent.parent / "models" / "gemma-2b-instruct.gguf"  # Gemma 2B (1.6GB)
         # model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-mini-4k-instruct-q3_k_s.gguf"  # Q3_K_S (1.7GB) - 55% slower
         print(f"🔧 Loading model with GPU acceleration...")
         self.llm = Llama(
             model_path=str(model_path),
             n_gpu_layers=-1,     # Use all GPU layers
-            n_ctx=8192,          # Gemma 2B has 8K context window
-            n_batch=128,         # Smaller batch for stability with large contexts
+            n_ctx=4096,          # Gemma 2B has 8K context window
+            n_batch=256,         # Smaller batch for stability with large contexts
             n_threads=None,      # Let llama.cpp auto-detect optimal threads
             verbose=True,        # Enable to see GPU layer loading
             # use_mlock=True,

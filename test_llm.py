@@ -22,21 +22,23 @@ async def test_llm():
     print("✅ Model loaded successfully!")
     
     # Test with hardcoded input
-    test_input = """<|system|>
+    test_input = """<|user|>
 You keep track of the user's current order, and update it based on the user's request.
 
 Rules:
-- Do not add items that are not on the menu.
-- Only use exact items from the menu.
+- Respond like a human.
+- Do not add items or things that are not on the menu.
+- Do not add suggestions to the current order
+- If there are multiple items that would fit the user's request, choose the most likely one.
+- If a user already has an item and asks for another, add it to the count of that item.
+- Put the correct count of each menu item followed by it's name.
 - Only add or remove items if the user clearly asks for it.
 - If the user asks for something not on the menu, do not include it.
-- Your full response should only include the updated order like this:
-- Do not add things that are not in the menu
+- A user may have multiple of the same item in their order.
+- Apologize if the user asks for something not on the menu.
+- Do not add notes in your response.
 
-
-Current Order:
-- Item
-- Item
+Format your response in two parts. The first part is a human-sounding response. The second part is the item names in the current order. 
 
 
 Menu:
@@ -44,7 +46,30 @@ Taco Supreme: Ground beef, lettuce, cheddar cheese, diced tomatoes, sour cream, 
 Bean Burrito: Flour tortilla, refried beans, cheddar cheese, red sauce  
 Cheesy Gordita Crunch: Flatbread, taco shell, seasoned beef, spicy ranch, lettuce, cheddar cheese  
 Crunchwrap Supreme: Flour tortilla, ground beef, nacho cheese, crunchy tostada shell, lettuce, tomato, sour cream
-<|end|>
+Cheese Quesadilla: Flour tortilla, three-cheese blend, creamy jalapeño sauce
+Pink Lemonade: Lemonade with red dye
+Tropicana Orange Juice: 100% orange juice
+Bottled Water: Purified water
+G2 Gatorade Fruit Punch: Electrolyte drink
+Frozen Baja Blast: Frozen lime soda slush
+Strawberry Skittles Freeze: Frozen drink with Skittles flavor
+Nacho Cheese Dip: Melted cheese
+Guacamole Dip: Mashed avocado with spices
+Pico de Gallo: Chopped tomatoes, onions, cilantro, lime juice
+Avocado Ranch Sauce: Creamy ranch with avocado flavor
+Creamy Jalapeño Sauce: Spicy, creamy jalapeño blend
+Red Sauce: Mild enchilada-style sauce
+Fire Sauce Packet: Very spicy sauce
+Hot Sauce Packet: Spicy sauce
+Mild Sauce Packet: Mildly spicy sauce
+Diablo Sauce Packet: Extra spicy sauce
+Grilled Chicken Taco: Grilled chicken, lettuce, cheddar cheese, soft tortilla
+Double Decker Taco: Crunchy taco with refried beans and soft tortilla
+Loaded Nacho Taco: Seasoned beef, nacho cheese, lettuce, red tortilla strips, soft tortilla
+Spicy Potato Soft Taco: Seasoned potatoes, lettuce, cheddar cheese, chipotle sauce, soft tortilla
+Triple Layer Nachos: Chips, refried beans, red sauce, nacho cheese
+Beefy 5-Layer Burrito: Ground beef, nacho cheese, cheddar cheese, refried beans, sour cream, flour tortilla
+XXL Grilled Stuft Burrito: Ground beef, rice, beans, guacamole, pico de gallo, cheddar cheese, sour cream
 """
 
 #     test_input = """
@@ -103,20 +128,21 @@ Crunchwrap Supreme: Flour tortilla, ground beef, nacho cheese, crunchy tostada s
 # <end_of_turn>
 # <start_of_turn>model"""
 
-    user_input_one = """<|user|>
+    user_input_one = """
+
 Current Order:
 - Bean Burrito
 
-User said: can i get a large cheeseburger with fries and a coke actually skip the coke i want a lemonade. and add a taco. oh, and can i also get another one of them burritos.
+User said: can i get a large cheeseburger with fries and a coke actually skip the coke i want a lemonade. and add 2 tacos. oh, and can i also get one more of them burritos. and a crunchwrap supreme. make that 2 crunchwraps.
 <|end|>
 <|assistant|>"""
 
-    user_input_two = """<|user|>
+    user_input_two = """
 Current Order:
 - Taco Supreme
 - Bean Burrito
 
-User said: okay actually can I have a Cheesy Gordita Crunch instead of the burrito
+User said: okay actually can I have a Cheesy Gordita Crunch instead of the burrito. And can you add a crunchywrap, I love those things.
 <|end|>
 <|assistant|>"""
 
