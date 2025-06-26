@@ -44,20 +44,24 @@ class LLMReasoner:
         
         # Load model with GPU acceleration  
         # model_path = Path(__file__).parent.parent.parent / "models" / "phi-3-mini-4k-instruct-q4_k_s.gguf"  # Q4_K_S (2.0GB) - 30% faster than Q4, potentially, if it has less tokens
-        model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-mini-4k-instruct-q4.gguf"  # Q4 (2.2GB) - slower baseline
+        # model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-mini-4k-instruct-q4.gguf"  # Q4 (2.2GB) - slower baseline
+        model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-medium-4k-instruct.gguf"  # Q4 (2.2GB) - slower baseline
         # model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-mini-4k-instruct-q3_k_s.gguf"  # Q3_K_S (1.7GB) - 55% slower
         print(f"🔧 Loading model with GPU acceleration...")
         self.llm = Llama(
             model_path=str(model_path),
             n_gpu_layers=-1,     # Use all GPU layers
-            n_ctx=4096,          # Half the context (was 2048)
-            n_batch=512,         # Optimal batch size (tested: 679ms vs 740ms for 1024)
+            n_ctx=4096,          # Full Phi-3 context window (matches model training)
+            n_batch=128,         # Smaller batch for stability with large contexts
             n_threads=None,      # Let llama.cpp auto-detect optimal threads
             verbose=True,        # Enable to see GPU layer loading
-            use_mlock=True,
-            flash_attn=True,     # Enable Flash Attention for speedup
+            # use_mlock=True,
+            # flash_attn=True,     # Enable Flash Attention for speedup
         )
-        # self.llm.set_cache(LlamaRAMCache(capacity_bytes=512*1024*1024 * 4))
+        
+        # Force clean state - no cache for large prompt testing
+        self.llm.reset()
+        print(f"🧹 Cache cleared for clean state")
         
         # Check actual GPU layers loaded
         print(f"🎯 Model loaded. Checking GPU configuration...")
@@ -116,16 +120,35 @@ class LLMReasoner:
         return items
 
     async def generate_response(self, text: str) -> str:
-        print(f"\n🗣  Test input: '{text}'")
+        print(f"\n🗣  User input: '{text}'")
 
-		# self.llm.reset()  # Clears model state and KV cache
-        """Fast LLM inference with hardcoded message"""
+        # Add context monitoring for large prompts
+        prompt_tokens = len(self.llm.tokenize(text.encode()))
+        context_limit = self.llm.n_ctx()
+        max_response_tokens = 500
+        
+        print(f"📊 Context Analysis:")
+        print(f"   Prompt tokens: {prompt_tokens}")
+        print(f"   Context limit: {context_limit}")
+        print(f"   Current KV cache: {getattr(self.llm, 'n_tokens', 0)} tokens")
+        
+        # Check for context overflow risk
+        if prompt_tokens + max_response_tokens > context_limit:
+            print(f"⚠️  WARNING: Prompt + response ({prompt_tokens + max_response_tokens}) > context limit ({context_limit})")
+            print(f"⚠️  Risk of gibberish output due to context overflow")
+        
+        # Clear cache for large prompts to prevent contamination
+        if prompt_tokens > 1000:
+            print(f"🧹 Large prompt detected ({prompt_tokens} tokens) - clearing cache")
+            self.llm.reset()
+
         start_time = time.time()
 
         # Generate response using Phi-3 Mini (run in thread to avoid blocking)
         response = await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: self.llm(text, max_tokens=500)
+            lambda: self.llm(text, max_tokens=max_response_tokens,stop=["Thank you", "Would you like", "Anything else", "\n\n"]
+)
         )
 
         print(response)
@@ -133,6 +156,10 @@ class LLMReasoner:
 
         latency_ms = (time.time() - start_time) * 1000
         print(f"🚀 LLM_INFERENCE: {latency_ms:.0f}ms")
+        
+        # Log final context usage
+        final_tokens = getattr(self.llm, 'n_tokens', 0)
+        print(f"📊 Final KV cache: {final_tokens} tokens ({final_tokens/context_limit*100:.1f}% of context)")
 
         return response_text
 
