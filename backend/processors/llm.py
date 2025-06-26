@@ -10,7 +10,7 @@ import time
 import logging
 from pathlib import Path
 from typing import List, Dict, Any
-from llama_cpp import Llama
+from llama_cpp import Llama, LlamaRAMCache
 import torch
 
 logger = logging.getLogger(__name__)
@@ -50,13 +50,14 @@ class LLMReasoner:
         self.llm = Llama(
             model_path=str(model_path),
             n_gpu_layers=-1,     # Use all GPU layers
-            n_ctx=1024,          # Half the context (was 2048)
-            n_batch=128,         # Optimal batch size (tested: 679ms vs 740ms for 1024)
+            n_ctx=4096,          # Half the context (was 2048)
+            n_batch=512,         # Optimal batch size (tested: 679ms vs 740ms for 1024)
             n_threads=None,      # Let llama.cpp auto-detect optimal threads
             verbose=True,        # Enable to see GPU layer loading
             use_mlock=True,
             flash_attn=True,     # Enable Flash Attention for speedup
         )
+        # self.llm.set_cache(LlamaRAMCache(capacity_bytes=512*1024*1024 * 4))
         
         # Check actual GPU layers loaded
         print(f"🎯 Model loaded. Checking GPU configuration...")
