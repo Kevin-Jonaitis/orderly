@@ -42,9 +42,10 @@ class LLMReasoner:
         import llama_cpp
         print(f"📋 llama-cpp-python version: {llama_cpp.__version__}")
         
-        # Load model with GPU acceleration
-        model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-mini-4k-instruct-q4.gguf"  # Q4_K_M (2.2GB)
-        # model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-mini-4k-instruct-q3_k_s.gguf"  # Q3_K_S (1.68GB) # DONT USE, REALLY SLOW
+        # Load model with GPU acceleration  
+        # model_path = Path(__file__).parent.parent.parent / "models" / "phi-3-mini-4k-instruct-q4_k_s.gguf"  # Q4_K_S (2.0GB) - 30% faster than Q4, potentially, if it has less tokens
+        model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-mini-4k-instruct-q4.gguf"  # Q4 (2.2GB) - slower baseline
+        # model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-mini-4k-instruct-q3_k_s.gguf"  # Q3_K_S (1.7GB) - 55% slower
         print(f"🔧 Loading model with GPU acceleration...")
         self.llm = Llama(
             model_path=str(model_path),

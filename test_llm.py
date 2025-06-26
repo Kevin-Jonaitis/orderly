@@ -23,19 +23,21 @@ async def test_llm():
     
     # Test with hardcoded input
     test_input = """
-    <|system|>
-You are an AI fast-food order taker. Respond to the input in a reasonable manner, with their updated order at the end of your response.
-Here is the user's current order:
-- Waffle
+<|system|>
+You're a fast-food order taker. Keep existing items unless cancelled. Be polite and concise, and end your response with:
 
-Here is the menu for items and pricing:
-- Cheeseburger: $11.99
-- Fries: $5.99
-- Waffle: $4.20
-- Coke: $1.00
+Final Order:
+- Item
+- Item
 <|end|>
 <|user|>
-can i get a large cheeseburger with fries and a coke actually skip the coke i want a lemonade<|end|>
+Order so far:
+- Waffle
+
+Menu: Cheeseburger, Chicken Sandwich, Fries, Waffle, Coke, Lemonade
+
+can i get a large cheeseburger with fries and a coke actually skip the coke i want a lemonade
+<|end|>
 <|assistant|>
 """    
     # Test fast LLM inference
