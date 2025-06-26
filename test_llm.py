@@ -24,27 +24,47 @@ async def test_llm():
     # Test with hardcoded input
     test_input = """
 <|system|>
-You're a fast-food order taker. Keep existing items unless cancelled. Be polite and concise, and end your response with:
+You're a fast-food order taker.
+
+Menu: Cheeseburger, Chicken Sandwich, Fries, Waffle, Coke, Lemonade. 
+
+Keep existing items unless cancelled. Be polite and concise, and end your response with
 
 Final Order:
 - Item
 - Item
 <|end|>
-<|user|>
+"""
+
+    user_input_one = """<|user|>
 Order so far:
 - Waffle
 
-Menu: Cheeseburger, Chicken Sandwich, Fries, Waffle, Coke, Lemonade
 
 can i get a large cheeseburger with fries and a coke actually skip the coke i want a lemonade
 <|end|>
-<|assistant|>
-"""    
+<|assistant|>"""
+
+    user_input_two = """<|user|>
+Order so far:
+- Waffle
+- Cheeseburger
+- Fries
+- Lemonade
+
+okay actually can you remove the waffle
+<|end|>
+<|assistant|>"""
+
     # Test fast LLM inference
     print("Testing fast LLM inference...")
-    response = await reasoner.generate_response(test_input)
+    response = await reasoner.generate_response(test_input + user_input_one)
     
     print(f"\n🤖 LLM Response: '{response}'")
+
+    response_two = await reasoner.generate_response(test_input + user_input_two)
+    
+    print(f"\n🤖 LLM Response: '{response_two}'")
 
 if __name__ == "__main__":
     asyncio.run(test_llm())
