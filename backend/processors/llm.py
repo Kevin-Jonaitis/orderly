@@ -43,15 +43,18 @@ class LLMReasoner:
         print(f"📋 llama-cpp-python version: {llama_cpp.__version__}")
         
         # Load model with GPU acceleration
-        model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-mini-4k-instruct-q4.gguf"
+        model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-mini-4k-instruct-q4.gguf"  # Q4_K_M (2.2GB)
+        # model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-mini-4k-instruct-q3_k_s.gguf"  # Q3_K_S (1.68GB) # DONT USE, REALLY SLOW
         print(f"🔧 Loading model with GPU acceleration...")
         self.llm = Llama(
             model_path=str(model_path),
             n_gpu_layers=-1,     # Use all GPU layers
             n_ctx=1024,          # Half the context (was 2048)
-            n_batch=512,         # GPU batch processing
+            n_batch=128,         # Optimal batch size (tested: 679ms vs 740ms for 1024)
             n_threads=None,      # Let llama.cpp auto-detect optimal threads
-            verbose=True         # Enable to see GPU layer loading
+            verbose=True,        # Enable to see GPU layer loading
+            use_mlock=True,
+            flash_attn=True,     # Enable Flash Attention for speedup
         )
         
         # Check actual GPU layers loaded
