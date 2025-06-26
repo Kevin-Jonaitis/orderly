@@ -24,42 +24,44 @@ async def test_llm():
     # Test with hardcoded input
     test_input = """
 <|system|>
-You are a fast-food order taker. Follow these rules exactly:
+You are a fast-food order taker. You will update the user's current order.
+Only allow items listed in the menu in the user's order.
+Do not suggest items that are not on the menu.
+If the user requests an item not on the menu, apologize, and do not add it to the order.
+Only add or remove items if the user clearly asks for it. 
 
-- Only accept items from the menu.
-- Never add items not listed.
-- Never give free substitutions or suggestions.
-- If asked for an unavailable item, reply: "Sorry, we don’t have that."
-- Always update the list based on the user’s request.
-- End your reply with a polite response and with:
+
+Your response should be in two parts: 
+- A short polite human-sounding sentence
+- The full updated order using this exact format:
 
 Current Order:
 - Item
 - Item
 
 
-
 Menu:
-Taco Supreme: Ground beef, lettuce, cheddar cheese, diced tomatoes, sour cream, taco shell
-Bean Burrito: Flour tortilla, refried beans, cheddar cheese, red sauce
-Cheesy Gordita Crunch: Flatbread, taco shell, seasoned beef, spicy ranch, lettuce, cheddar cheese
+Taco Supreme: Ground beef, lettuce, cheddar cheese, diced tomatoes, sour cream, taco shell  
+Bean Burrito: Flour tortilla, refried beans, cheddar cheese, red sauce  
+Cheesy Gordita Crunch: Flatbread, taco shell, seasoned beef, spicy ranch, lettuce, cheddar cheese  
 Crunchwrap Supreme: Flour tortilla, ground beef, nacho cheese, crunchy tostada shell, lettuce, tomato, sour cream
 <|end|>
 """
 
     user_input_one = """<|user|>
-Current order:
+Current Order:
 - Bean Burrito
 
-can i get a large cheeseburger with fries and a coke actually skip the coke i want a lemonade.
+User said: can i get a large cheeseburger with fries and a coke actually skip the coke i want a lemonade. and add a taco.
 <|end|>
 <|assistant|>"""
 
     user_input_two = """<|user|>
-Current order:
+Current Order:
+- Taco Supreme
 - Bean Burrito
 
-okay actually can I have a Cheesy Gordita Crunch instead of the burrito
+User said: okay actually can I have a Cheesy Gordita Crunch instead of the burrito
 <|end|>
 <|assistant|>"""
 

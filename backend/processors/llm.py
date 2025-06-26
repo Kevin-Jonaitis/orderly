@@ -147,7 +147,9 @@ class LLMReasoner:
         # Generate response using Phi-3 Mini (run in thread to avoid blocking)
         response = await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: self.llm(text, max_tokens=max_response_tokens,stop=["Thank you", "Would you like", "Anything else", "\n\n"]
+            lambda: self.llm(text, max_tokens=max_response_tokens,
+			stop=["<|user|>", "<|end|>", "User said:"]
+
 )
         )
 
