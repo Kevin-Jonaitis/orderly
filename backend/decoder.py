@@ -1,8 +1,3 @@
-"""
-Optimized SNAC decoder based on Orpheus-FastAPI implementation
-Provides high-performance audio generation from token streams
-"""
-
 from snac import SNAC
 import numpy as np
 import torch
@@ -13,119 +8,144 @@ import time
 import os
 import sys
 
+# Helper to detect if running in Uvicorn's reloader (same as in inference.py)
 def is_reloader_process():
     """Check if the current process is a uvicorn reloader"""
     return (sys.argv[0].endswith('_continuation.py') or 
             os.environ.get('UVICORN_STARTED') == 'true')
 
+# Set a flag to avoid repeat messages
 IS_RELOADER = is_reloader_process()
 
-# Constants
-CUSTOM_TOKEN_PREFIX = "<custom_token_"
-MAX_CACHE_SIZE = 10000
+model = SNAC.from_pretrained("hubertsiuzdak/snac_24khz").eval()
 
-# PyTorch and CUDA optimization checks
-TORCH_COMPILE_AVAILABLE = False
-try:
-    if hasattr(torch, 'compile'):
-        TORCH_COMPILE_AVAILABLE = True
-        if not IS_RELOADER:
-            print("PyTorch 2.0+ detected, torch.compile is available")
-except:
-    pass
-
-CUDA_GRAPHS_AVAILABLE = False
-try:
-    if torch.cuda.is_available() and hasattr(torch.cuda, 'make_graphed_callables'):
-        CUDA_GRAPHS_AVAILABLE = True
-        if not IS_RELOADER:
-            print("CUDA graphs support is available")
-except:
-    pass
-
-# Device selection with priority: CUDA > MPS > CPU
-snac_device = ("cuda" if torch.cuda.is_available() 
-               else "mps" if torch.backends.mps.is_available() 
-               else "cpu")
-
+# Check if CUDA is available and set device accordingly
+snac_device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 if not IS_RELOADER:
     print(f"Using device: {snac_device}")
-
-# Load SNAC model
-model = SNAC.from_pretrained("hubertsiuzdak/snac_24khz").eval()
 model = model.to(snac_device)
 
-# CUDA optimizations
+# Prepare CUDA streams for parallel processing if available
 cuda_stream = None
 if snac_device == "cuda":
     cuda_stream = torch.cuda.Stream()
     if not IS_RELOADER:
         print("Using CUDA stream for parallel processing")
+
+def convert_to_audio(multiframe, count):
+    """
+    Convert tokens to audio - simplified version matching speechpipe.py
+    """
+    if len(multiframe) < 7:
+        return None
+  
+    num_frames = len(multiframe) // 7
+    frame = multiframe[:num_frames*7]
     
-    # Enable TF32 for faster computation on Ampere GPUs
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
-    # Enable optimized attention mechanisms
-    torch.backends.cuda.enable_flash_sdp(True)
+    # Pre-allocate tensors instead of incrementally building them
+    codes_0 = torch.zeros(num_frames, dtype=torch.int32, device=snac_device)
+    codes_1 = torch.zeros(num_frames * 2, dtype=torch.int32, device=snac_device)
+    codes_2 = torch.zeros(num_frames * 4, dtype=torch.int32, device=snac_device)
+    
+    # Use vectorized operations where possible
+    frame_tensor = torch.tensor(frame, dtype=torch.int32, device=snac_device)
+    
+    # Direct indexing
+    for j in range(num_frames):
+        idx = j * 7
+        
+        # Code 0 - single value per frame
+        codes_0[j] = frame_tensor[idx]
+        
+        # Code 1 - two values per frame
+        codes_1[j*2] = frame_tensor[idx+1]
+        codes_1[j*2+1] = frame_tensor[idx+4]
+        
+        # Code 2 - four values per frame
+        codes_2[j*4] = frame_tensor[idx+2]
+        codes_2[j*4+1] = frame_tensor[idx+3]
+        codes_2[j*4+2] = frame_tensor[idx+5]
+        codes_2[j*4+3] = frame_tensor[idx+6]
+    
+    # Reshape codes into expected format
+    codes = [
+        codes_0.unsqueeze(0), 
+        codes_1.unsqueeze(0), 
+        codes_2.unsqueeze(0)
+    ]
+    
+    # Check tokens are in valid range
+    if (torch.any(codes[0] < 0) or torch.any(codes[0] > 4096) or 
+        torch.any(codes[1] < 0) or torch.any(codes[1] > 4096) or 
+        torch.any(codes[2] < 0) or torch.any(codes[2] > 4096)):
+        return None
 
-# Apply torch.compile for significant speedup (PyTorch 2.0+)
-if TORCH_COMPILE_AVAILABLE:
-    try:
-        compile_mode = os.environ.get("TORCH_COMPILE_MODE", "default")
-        model = torch.compile(model, mode=compile_mode)
-        if not IS_RELOADER:
-            print(f"torch.compile enabled with mode: {compile_mode}")
-    except Exception as e:
-        if not IS_RELOADER:
-            print(f"torch.compile failed: {e}")
+    # Use CUDA stream for parallel processing if available
+    stream_ctx = torch.cuda.stream(cuda_stream) if cuda_stream is not None else torch.no_grad()
+    
+    with stream_ctx, torch.inference_mode():
+        # Decode the audio
+        audio_hat = model.decode(codes)
+        
+        # Extract the relevant slice and efficiently convert to bytes
+        # Keep data on GPU as long as possible
+        audio_slice = audio_hat[:, :, 2048:4096]
+        
+        # Process on GPU if possible, with minimal data transfer
+        if snac_device == "cuda":
+            # Scale directly on GPU
+            audio_int16_tensor = (audio_slice * 32767).to(torch.int16)
+            # Only transfer the final result to CPU
+            audio_bytes = audio_int16_tensor.cpu().numpy().tobytes()
+        else:
+            # For non-CUDA devices, fall back to the original approach
+            detached_audio = audio_slice.detach().cpu()
+            audio_np = detached_audio.numpy()
+            audio_int16 = (audio_np * 32767).astype(np.int16)
+            audio_bytes = audio_int16.tobytes()
+            
+    return audio_bytes
 
-# Mixed precision support
-use_mixed_precision = os.environ.get("SNAC_MIXED_PRECISION", "false").lower() == "true"
-if use_mixed_precision and snac_device == "cuda":
-    try:
-        model = model.half()
-        if not IS_RELOADER:
-            print("Mixed precision (float16) enabled")
-    except Exception as e:
-        if not IS_RELOADER:
-            print(f"Mixed precision failed: {e}")
-        use_mixed_precision = False
+# Define the custom token prefix
+CUSTOM_TOKEN_PREFIX = "<custom_token_"
 
-# Token ID cache for performance optimization
+# Use a single global cache for token processing
 token_id_cache = {}
-cache_stats = {'hits': 0, 'misses': 0}
+MAX_CACHE_SIZE = 10000  # Increased cache size for better performance
 
 def turn_token_into_id(token_string, index):
-    """Parse custom tokens from strings and extract numeric IDs with caching."""
-    # Check cache first for speedup
-    cache_key = (token_string.strip(), index % 7)
+    """
+    Optimized token-to-ID conversion with caching.
+    This is the definitive implementation used by both inference.py and speechpipe.py.
+    
+    Args:
+        token_string: The token string to convert
+        index: Position index used for token offset calculation
+        
+    Returns:
+        int: Token ID if valid, None otherwise
+    """
+    # Check cache first (significant speedup for repeated tokens)
+    cache_key = (token_string, index % 7)
     if cache_key in token_id_cache:
-        cache_stats['hits'] += 1
         return token_id_cache[cache_key]
-    
-    cache_stats['misses'] += 1
-    
+        
     # Early rejection for obvious non-matches
     if CUSTOM_TOKEN_PREFIX not in token_string:
-        if len(token_id_cache) < MAX_CACHE_SIZE:
-            token_id_cache[cache_key] = None
         return None
-    
+        
+    # Process token
     token_string = token_string.strip()
     last_token_start = token_string.rfind(CUSTOM_TOKEN_PREFIX)
     
     if last_token_start == -1:
-        if len(token_id_cache) < MAX_CACHE_SIZE:
-            token_id_cache[cache_key] = None
         return None
     
     last_token = token_string[last_token_start:]
     
-    if not (last_token.startswith(CUSTOM_TOKEN_PREFIX) and last_token.endswith('>')):
-        if len(token_id_cache) < MAX_CACHE_SIZE:
-            token_id_cache[cache_key] = None
+    if not (last_token.startswith(CUSTOM_TOKEN_PREFIX) and last_token.endswith(">")):
         return None
-    
+        
     try:
         number_str = last_token[14:-1]
         token_id = int(number_str) - 10 - ((index % 7) * 4096)
@@ -133,296 +153,126 @@ def turn_token_into_id(token_string, index):
         # Cache the result if it's valid
         if len(token_id_cache) < MAX_CACHE_SIZE:
             token_id_cache[cache_key] = token_id
-        
+            
         return token_id
     except (ValueError, IndexError):
-        if len(token_id_cache) < MAX_CACHE_SIZE:
-            token_id_cache[cache_key] = None
         return None
-
-def convert_to_audio(multiframe, count):
-    """Optimized audio conversion with reduced CPU-GPU transfers"""
-    conversion_start = time.time()
-    
-    if len(multiframe) < 7:
-        return None
-    
-    num_frames = len(multiframe) // 7
-    frame = multiframe[:num_frames * 7]
-    
-    # Time tensor preparation
-    tensor_prep_start = time.time()
-    
-    # Determine dtype based on mixed precision setting
-    dtype = torch.float16 if use_mixed_precision else torch.int32
-    
-    # Pre-allocate tensors directly on device for optimal performance
-    codes_0 = torch.zeros(num_frames, dtype=dtype, device=snac_device)
-    codes_1 = torch.zeros(num_frames * 2, dtype=dtype, device=snac_device)
-    codes_2 = torch.zeros(num_frames * 4, dtype=dtype, device=snac_device)
-    
-    # Vectorized tensor population - much faster than loops
-    frame_tensor = torch.tensor(frame, dtype=torch.int32, device=snac_device)
-    frame_reshaped = frame_tensor.view(num_frames, 7)
-    
-    # Extract codes using advanced indexing (vectorized)
-    codes_0.copy_(frame_reshaped[:, 0].to(dtype))
-    codes_1[0::2] = frame_reshaped[:, 1].to(dtype)
-    codes_1[1::2] = frame_reshaped[:, 4].to(dtype)
-    codes_2[0::4] = frame_reshaped[:, 2].to(dtype)
-    codes_2[1::4] = frame_reshaped[:, 3].to(dtype)
-    codes_2[2::4] = frame_reshaped[:, 5].to(dtype)
-    codes_2[3::4] = frame_reshaped[:, 6].to(dtype)
-    
-    # Create codes list with batch dimension
-    codes = [codes_0.unsqueeze(0), codes_1.unsqueeze(0), codes_2.unsqueeze(0)]
-    
-    # Fast validation (skip for int32 as it's already validated)
-    if dtype != torch.int32:
-        if not (torch.all(codes_0 >= 0) and torch.all(codes_0 <= 4096) and
-                torch.all(codes_1 >= 0) and torch.all(codes_1 <= 4096) and
-                torch.all(codes_2 >= 0) and torch.all(codes_2 <= 4096)):
-            return None
-    
-    tensor_prep_end = time.time()
-    tensor_prep_time = tensor_prep_end - tensor_prep_start
-    
-    # Time pure SNAC model inference
-    model_inference_start = time.time()
-    
-    # Use CUDA stream for parallel processing if available
-    if cuda_stream is not None:
-        with torch.cuda.stream(cuda_stream):
-            with torch.inference_mode():
-                audio_hat = model.decode(codes)
-    else:
-        with torch.inference_mode():
-            audio_hat = model.decode(codes)
-    
-    model_inference_end = time.time()
-    model_inference_time = model_inference_end - model_inference_start
-    
-    # Time post-processing
-    postprocess_start = time.time()
-    audio_slice = audio_hat[:, :, 2048:4096]
-    
-    # Optimized scaling for different devices
-    if snac_device == "cuda":
-        # Keep on GPU longer for RTX cards
-        audio_np = (audio_slice * 32767).detach().cpu().numpy().astype(np.int16)
-    else:
-        # Standard CPU processing
-        detached_audio = audio_slice.detach().cpu()
-        audio_np = detached_audio.numpy()
-        audio_np = (audio_np * 32767).astype(np.int16)
-    
-    audio_bytes = audio_np.tobytes()
-    postprocess_end = time.time()
-    postprocess_time = postprocess_end - postprocess_start
-    
-    total_conversion_time = postprocess_end - conversion_start
-    
-    # Log detailed timing for performance analysis
-    if hasattr(convert_to_audio, 'call_count'):
-        convert_to_audio.call_count += 1
-    else:
-        convert_to_audio.call_count = 1
-    
-    if convert_to_audio.call_count <= 3:
-        print(f"  🔧 SNAC BREAKDOWN (call {convert_to_audio.call_count}):")
-        print(f"    Tensor preparation: {tensor_prep_time:.3f}s")
-        print(f"    Model inference: {model_inference_time:.3f}s (pure SNAC)")
-        print(f"    Post-processing: {postprocess_time:.3f}s")
-        print(f"    Total SNAC time: {total_conversion_time:.3f}s")
-    elif convert_to_audio.call_count % 10 == 0:
-        print(f"  🔧 SNAC call {convert_to_audio.call_count}: total={total_conversion_time:.3f}s, model={model_inference_time:.3f}s")
-    
-    return audio_bytes
-
-def get_cache_stats():
-    """Get token cache performance statistics."""
-    total = cache_stats['hits'] + cache_stats['misses']
-    hit_rate = cache_stats['hits'] / total * 100 if total > 0 else 0
-    return {
-        'cache_size': len(token_id_cache),
-        'max_size': MAX_CACHE_SIZE,
-        'hits': cache_stats['hits'],
-        'misses': cache_stats['misses'],
-        'hit_rate': hit_rate
-    }
-
-def warmup_model():
-    """Warmup the SNAC model to eliminate cold start penalty."""
-    if IS_RELOADER:
-        return
-        
-    print("Warming up SNAC model...")
-    warmup_start = time.time()
-    
-    # Create dummy inputs for warmup using the same dtype as inference
-    warmup_dtype = torch.float16 if use_mixed_precision else torch.int32
-    dummy_codes_0 = torch.tensor([[1, 2, 3, 4]], device=snac_device, dtype=warmup_dtype)
-    dummy_codes_1 = torch.tensor([[1, 2, 3, 4, 5, 6, 7, 8]], device=snac_device, dtype=warmup_dtype)
-    dummy_codes_2 = torch.tensor([[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]], device=snac_device, dtype=warmup_dtype)
-    
-    codes = [dummy_codes_0, dummy_codes_1, dummy_codes_2]
-    
-    try:
-        if cuda_stream is not None:
-            with torch.cuda.stream(cuda_stream):
-                with torch.inference_mode():
-                    _ = model.decode(codes)
-        else:
-            with torch.inference_mode():
-                _ = model.decode(codes)
-        warmup_time = time.time() - warmup_start
-        print(f"Model warmup completed in {warmup_time:.3f}s")
-    except Exception as e:
-        print(f"Warmup failed: {e} - proceeding anyway")
 
 async def tokens_decoder(token_gen):
-    """Asynchronous generator that processes streaming tokens with optimized performance."""
+    """Simple token decoder matching original Orpheus implementation exactly"""
     buffer = []
     count = 0
-    last_token_time = None
-    first_audio_generated = False
-    chunk_count = 0
     
-    print("🎵 Starting optimized token decoder...")
-    
-    async for token_text, token_time in token_gen:
-        # Track token timing
-        if last_token_time is not None:
-            token_interval = token_time - last_token_time
-            if token_interval > 0.1:  # Log significant gaps
-                print(f"⏱️  Token gap: {token_interval:.3f}s (waiting for server)")
-        
-        token = turn_token_into_id(token_text, count)
+    async for token_sim in token_gen:       
+        token = turn_token_into_id(token_sim, count)
         if token is not None and token > 0:
             buffer.append(token)
             count += 1
 
-            # Convert to audio when we have enough tokens
+            # Original Orpheus logic: process every 7 tokens after count > 27
             if count % 7 == 0 and count > 27:
-                tokens_ready_time = time.time()
                 buffer_to_proc = buffer[-28:]
-                
-                # Time the SNAC conversion
-                snac_start = time.time()
                 audio_samples = convert_to_audio(buffer_to_proc, count)
-                snac_end = time.time()
-                snac_time = snac_end - snac_start
-                
                 if audio_samples is not None:
-                    chunk_count += 1
-                    
-                    # Calculate timing breakdown
-                    if last_token_time:
-                        token_accumulation_time = tokens_ready_time - last_token_time
-                    else:
-                        token_accumulation_time = 0
-                    
-                    # Log detailed timing for first few chunks
-                    if chunk_count <= 3:
-                        print(f"🎵 Audio chunk {chunk_count} generated:")
-                        print(f"  📊 TIMING BREAKDOWN:")
-                        print(f"    Token accumulation: {token_accumulation_time:.3f}s (server dependency)")
-                        print(f"    SNAC inference: {snac_time:.3f}s (model bottleneck)")
-                        print(f"    Total chunk time: {(snac_end - (last_token_time or tokens_ready_time)):.3f}s")
-                        if not first_audio_generated:
-                            print(f"  🚀 FIRST AUDIO CHUNK COMPLETE")
-                            first_audio_generated = True
-                    elif chunk_count % 5 == 0:
-                        print(f"🎵 Chunk {chunk_count}: token_wait={token_accumulation_time:.3f}s, snac={snac_time:.3f}s")
-                    
                     yield audio_samples
-        
-        last_token_time = token_time
     
-    # Report cache performance
-    stats = get_cache_stats()
-    print(f"🎵 Token decoder complete: {chunk_count} audio chunks generated")
-    print(f"📊 Token cache stats: {stats['hit_rate']:.1f}% hit rate ({stats['hits']} hits, {stats['misses']} misses, {stats['cache_size']} cached)")
-
-def tokens_decoder_sync(syn_token_gen):
-    """Synchronous wrapper for the async token decoder with performance monitoring."""
-    result_queue = queue.Queue()
-    sync_start = time.time()
-    chunk_count = 0
-    
-    async def async_wrapper():
-        try:
-            async for audio_chunk in tokens_decoder(syn_token_gen):
-                chunk_put_time = time.time()
-                result_queue.put(('chunk', audio_chunk, chunk_put_time))
-        except Exception as e:
-            result_queue.put(('error', e, time.time()))
-        finally:
-            result_queue.put(('done', None, time.time()))
-    
-    def run_async():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(async_wrapper())
-        finally:
-            loop.close()
-    
-    # Start async processing in a separate thread
-    thread = threading.Thread(target=run_async)
-    thread.start()
-    
-    print("🔄 Starting optimized synchronous token decoder wrapper...")
-    
-    # Yield results as they become available
-    while True:
-        try:
-            result = result_queue.get(timeout=10)
-            queue_get_time = time.time()
+    # CRITICAL: End-of-generation handling - process all remaining frames
+    # Process remaining complete frames (ideal size)
+    if len(buffer) >= 49:
+        buffer_to_proc = buffer[-49:]
+        audio_samples = convert_to_audio(buffer_to_proc, count)
+        if audio_samples is not None:
+            yield audio_samples
             
-            if len(result) >= 3:
-                msg_type, data, put_time = result[0], result[1], result[2]
-                queue_delay = queue_get_time - put_time
-                
-                if msg_type == 'chunk':
+    # Process any additional complete frames (minimum size)
+    elif len(buffer) >= 28:
+        buffer_to_proc = buffer[-28:]
+        audio_samples = convert_to_audio(buffer_to_proc, count)
+        if audio_samples is not None:
+            yield audio_samples
+            
+    # Final special case: even if we don't have minimum frames, try to process
+    # what we have by padding with silence tokens that won't affect the audio
+    elif len(buffer) >= 7:
+        # Pad to minimum frame requirement with copies of the final token
+        # This is more continuous than using unrelated tokens from the beginning
+        last_token = buffer[-1]
+        padding_needed = 28 - len(buffer)
+        
+        # Create a padding array of copies of the last token
+        # This maintains continuity much better than circular buffering
+        padding = [last_token] * padding_needed
+        padded_buffer = buffer + padding
+        
+        print(f"Processing final partial frame: {len(buffer)} tokens + {padding_needed} repeated-token padding")
+        audio_samples = convert_to_audio(padded_buffer, count)
+        if audio_samples is not None:
+            yield audio_samples
+
+# ------------------ Synchronous Tokens Decoder Wrapper ------------------ #
+def tokens_decoder_sync(syn_token_gen):
+    """Optimized synchronous decoder with larger queue and parallel processing"""
+    # Use a larger queue for RTX 4090 to maximize GPU utilization
+    max_queue_size = 32 if snac_device == "cuda" else 8
+    audio_queue = queue.Queue(maxsize=max_queue_size)
+    
+    # Collect tokens in batches for higher throughput
+    batch_size = 16 if snac_device == "cuda" else 4
+    
+    # Convert the synchronous token generator into an async generator with batching
+    async def async_token_gen():
+        token_batch = []
+        for token in syn_token_gen:
+            token_batch.append(token)
+            # Process in batches for efficiency
+            if len(token_batch) >= batch_size:
+                for t in token_batch:
+                    yield t
+                token_batch = []
+        # Process any remaining tokens
+        for t in token_batch:
+            yield t
+
+    async def async_producer():
+        # Start timer for performance logging
+        start_time = time.time()
+        chunk_count = 0
+        
+        try:
+            # Process audio chunks from the token decoder
+            async for audio_chunk in tokens_decoder(async_token_gen()):
+                if audio_chunk:  # Validate audio chunk before adding to queue
+                    audio_queue.put(audio_chunk)
                     chunk_count += 1
                     
-                    # Log queue delays for first few chunks
-                    if chunk_count <= 3:
-                        print(f"  📦 Queue timing (chunk {chunk_count}):")
-                        print(f"    Queue delay: {queue_delay:.6f}s (threading overhead)")
-                    elif queue_delay > 0.01:  # Only log significant delays
-                        print(f"  📦 Queue delay chunk {chunk_count}: {queue_delay:.6f}s")
-                    
-                    yield data
-                elif msg_type == 'error':
-                    raise data
-                elif msg_type == 'done':
-                    total_sync_time = queue_get_time - sync_start
-                    print(f"🔄 Sync wrapper complete: {chunk_count} chunks in {total_sync_time:.3f}s")
-                    break
-            else:
-                # Handle old format without timing
-                msg_type, data = result[0], result[1]
-                if msg_type == 'chunk':
-                    yield data
-                elif msg_type == 'error':
-                    raise data
-                elif msg_type == 'done':
-                    break
-                    
-        except queue.Empty:
-            print("⚠️  Queue timeout - no data received")
+                    # Log performance stats periodically
+                    if chunk_count % 10 == 0:
+                        elapsed = time.time() - start_time
+                        print(f"Generated {chunk_count} chunks in {elapsed:.2f}s ({chunk_count/elapsed:.2f} chunks/sec)")
+        except Exception as e:
+            print(f"Error in audio producer: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:    
+            # Signal completion
+            print("Audio producer completed - finalizing all chunks")
+            audio_queue.put(None)  # Sentinel
+
+    def run_async():
+        asyncio.run(async_producer())
+
+    # Use a higher priority thread for RTX 4090 to ensure it stays fed with work
+    thread = threading.Thread(target=run_async)
+    thread.daemon = True  # Allow the thread to be terminated when the main thread exits
+    thread.start()
+
+    # Yield chunks immediately as they arrive (no buffering for true streaming)
+    while True:
+        audio = audio_queue.get()
+        if audio is None:
             break
-    
+        
+        # Immediate yield - no buffering or grouping
+        yield audio
+
     thread.join()
-
-# Perform warmup on module import
-warmup_model()
-
-if not IS_RELOADER:
-    print("✅ Optimized decoder ready!")
-    print(f"  Device: {snac_device}")
-    print(f"  Mixed precision: {use_mixed_precision}")
-    print(f"  Torch compile: {TORCH_COMPILE_AVAILABLE}")
-    print(f"  CUDA graphs: {CUDA_GRAPHS_AVAILABLE}")
