@@ -45,7 +45,7 @@ class LLMReasoner:
         # Load model with GPU acceleration  
         # model_path = Path(__file__).parent.parent.parent / "models" / "phi-3-mini-4k-instruct-q4_k_s.gguf"  # Q4_K_S (2.0GB) - 30% faster than Q4, potentially, if it has less tokens
         # model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-mini-4k-instruct-q4.gguf"  # Q4 (2.2GB) - slower baseline
-        model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-medium-4k-instruct.gguf"  # Q4 8GB or something like that
+        model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-medium-4k-instruct.gguf"  # Q4 8GB or something like that # Speed: 64.3 tokens/sec on 5070 Ti
         # model_path = Path(__file__).parent.parent.parent / "models" / "gemma-2b-instruct.gguf"  # Gemma 2B (1.6GB)
         # model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-mini-4k-instruct-q3_k_s.gguf"  # Q3_K_S (1.7GB) - 55% slower
         print(f"🔧 Loading model with GPU acceleration...")
@@ -139,11 +139,6 @@ class LLMReasoner:
         if prompt_tokens + max_response_tokens > context_limit:
             print(f"⚠️  WARNING: Prompt + response ({prompt_tokens + max_response_tokens}) > context limit ({context_limit})")
             print(f"⚠️  Risk of gibberish output due to context overflow")
-        
-        # # Clear cache for large prompts to prevent contamination
-        # if prompt_tokens > 1000:
-        #     print(f"🧹 Large prompt detected ({prompt_tokens} tokens) - clearing cache")
-        #     self.llm.reset()
 
         start_time = time.time()
 
@@ -167,6 +162,78 @@ class LLMReasoner:
         print(f"📊 Final KV cache: {final_tokens} tokens ({final_tokens/context_limit*100:.1f}% of context)")
 
         return response_text
+    
+    async def generate_response_stream(self, text: str):
+        """Generate response with streaming and time-to-first-token metrics"""
+        print(f"\n🗣  User input: '{text}'")
+
+        # Add context monitoring for large prompts
+        prompt_tokens = len(self.llm.tokenize(text.encode()))
+        context_limit = self.llm.n_ctx()
+        max_response_tokens = 500
+        
+        print(f"📊 Context Analysis:")
+        print(f"   Prompt tokens: {prompt_tokens}")
+        print(f"   Context limit: {context_limit}")
+        print(f"   Current KV cache: {getattr(self.llm, 'n_tokens', 0)} tokens")
+
+        start_time = time.time()
+        first_token_time = None
+        first_5_words_time = None
+        accumulated_text = ""
+        word_count = 0
+        token_count = 0
+        
+        # Create streaming response in executor
+        def create_stream():
+            return self.llm.create_completion(
+                text,
+                max_tokens=max_response_tokens,
+                stop=["<|user|>", "<|end|>", "User said:"],
+                temperature=0.0,
+                top_k=1,
+                stream=True
+            )
+        
+        # Run in executor to avoid blocking
+        stream = await asyncio.get_event_loop().run_in_executor(None, create_stream)
+        
+        for output in stream:
+            if 'choices' in output and len(output['choices']) > 0:
+                token = output['choices'][0].get('text', '')
+                if token:
+                    token_count += 1
+                    accumulated_text += token
+                    
+                    # Record time to first token
+                    if first_token_time is None:
+                        first_token_time = time.time()
+                        time_to_first_ms = (first_token_time - start_time) * 1000
+                        print(f"⚡ Time to first token: {time_to_first_ms:.0f}ms")
+                    
+                    # Count words and record time to first 5 words
+                    words = accumulated_text.split()
+                    if len(words) != word_count:
+                        word_count = len(words)
+                        if word_count >= 5 and first_5_words_time is None:
+                            first_5_words_time = time.time()
+                            time_to_5_words_ms = (first_5_words_time - start_time) * 1000
+                            print(f"🎯 Time to first 5 words: {time_to_5_words_ms:.0f}ms")
+                            print(f"📝 First 5 words: {' '.join(words[:5])}")
+                    
+                    # Yield the token for streaming
+                    yield token
+        
+        # Final metrics
+        total_time = time.time() - start_time
+        total_ms = total_time * 1000
+        tokens_per_second = token_count / total_time if total_time > 0 else 0
+        
+        print(f"\n📊 Streaming metrics:")
+        print(f"   Total tokens: {token_count}")
+        print(f"   Total time: {total_ms:.0f}ms")
+        print(f"   Speed: {tokens_per_second:.1f} tokens/sec")
+        print(f"   Final response: '{accumulated_text.strip()}'")
 
     def _log_gpu_memory(self, context: str):
         """Log GPU memory usage and KV cache stats"""

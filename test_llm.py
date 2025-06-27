@@ -181,15 +181,29 @@ User said: okay actually can I have a Cheesy Gordita Crunch instead of the burri
 <|end|>
 <|assistant|>"""
 
-    # Test fast LLM inference
-    print("Testing fast LLM inference...")
-    response = await reasoner.generate_response(test_input + user_input_one)
+    # Test streaming inference with real-time output
+    print("\n🌊 Testing streaming inference - First input:")
+    print("=" * 60)
+    print("\n🤖 LLM Response (streaming): ", end='', flush=True)
     
-    print(f"\n🤖 LLM Response: '{response}'")
-
-    response_two = await reasoner.generate_response(test_input + user_input_two)
+    streamed_response_one = ""
+    async for token in reasoner.generate_response_stream(test_input + user_input_one):
+        print(token, end='', flush=True)  # Print each token as it arrives
+        streamed_response_one += token
     
-    print(f"\n🤖 LLM Response: '{response_two}'")
+    print(f"\n\n✅ Complete response: '{streamed_response_one}'")
+    
+    # Test second input with streaming
+    print("\n\n🌊 Testing streaming inference - Second input:")
+    print("=" * 60)
+    print("\n🤖 LLM Response (streaming): ", end='', flush=True)
+    
+    streamed_response_two = ""
+    async for token in reasoner.generate_response_stream(test_input + user_input_two):
+        print(token, end='', flush=True)  # Print each token as it arrives
+        streamed_response_two += token
+    
+    print(f"\n\n✅ Complete response: '{streamed_response_two}'")
 
 if __name__ == "__main__":
     asyncio.run(test_llm())
