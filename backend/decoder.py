@@ -1,162 +1,233 @@
+"""
+Optimized SNAC decoder based on Orpheus-FastAPI implementation
+Provides high-performance audio generation from token streams
+"""
+
 from snac import SNAC
 import numpy as np
 import torch
 import asyncio
 import threading
 import queue
-import os
 import time
+import os
+import sys
 
-# Load pre-trained SNAC model
+def is_reloader_process():
+    """Check if the current process is a uvicorn reloader"""
+    return (sys.argv[0].endswith('_continuation.py') or 
+            os.environ.get('UVICORN_STARTED') == 'true')
+
+IS_RELOADER = is_reloader_process()
+
+# Constants
+CUSTOM_TOKEN_PREFIX = "<custom_token_"
+MAX_CACHE_SIZE = 10000
+
+# PyTorch and CUDA optimization checks
+TORCH_COMPILE_AVAILABLE = False
+try:
+    if hasattr(torch, 'compile'):
+        TORCH_COMPILE_AVAILABLE = True
+        if not IS_RELOADER:
+            print("PyTorch 2.0+ detected, torch.compile is available")
+except:
+    pass
+
+CUDA_GRAPHS_AVAILABLE = False
+try:
+    if torch.cuda.is_available() and hasattr(torch.cuda, 'make_graphed_callables'):
+        CUDA_GRAPHS_AVAILABLE = True
+        if not IS_RELOADER:
+            print("CUDA graphs support is available")
+except:
+    pass
+
+# Device selection with priority: CUDA > MPS > CPU
+snac_device = ("cuda" if torch.cuda.is_available() 
+               else "mps" if torch.backends.mps.is_available() 
+               else "cpu")
+
+if not IS_RELOADER:
+    print(f"Using device: {snac_device}")
+
+# Load SNAC model
 model = SNAC.from_pretrained("hubertsiuzdak/snac_24khz").eval()
-
-# Determine device (CUDA or CPU)
-snac_device = os.environ.get("SNAC_DEVICE", "cuda")
 model = model.to(snac_device)
 
-# Enable PyTorch optimizations
-print("Applying PyTorch optimizations...")
-
-# Enable CUDA optimizations if available
-if torch.cuda.is_available():
-    print("  ✅ CUDA optimizations enabled")
+# CUDA optimizations
+cuda_stream = None
+if snac_device == "cuda":
+    cuda_stream = torch.cuda.Stream()
+    if not IS_RELOADER:
+        print("Using CUDA stream for parallel processing")
+    
     # Enable TF32 for faster computation on Ampere GPUs
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
     # Enable optimized attention mechanisms
     torch.backends.cuda.enable_flash_sdp(True)
-    # Optimize memory allocator
-    torch.cuda.empty_cache()
 
 # Apply torch.compile for significant speedup (PyTorch 2.0+)
-try:
-    # Use different modes based on environment variable
-    compile_mode = os.environ.get("TORCH_COMPILE_MODE", "default")  # options: default, reduce-overhead, max-autotune
-    model = torch.compile(model, mode=compile_mode)
-    print(f"  ✅ torch.compile enabled with mode: {compile_mode}")
-except Exception as e:
-    print(f"  ⚠️  torch.compile not available: {e}")
+if TORCH_COMPILE_AVAILABLE:
+    try:
+        compile_mode = os.environ.get("TORCH_COMPILE_MODE", "default")
+        model = torch.compile(model, mode=compile_mode)
+        if not IS_RELOADER:
+            print(f"torch.compile enabled with mode: {compile_mode}")
+    except Exception as e:
+        if not IS_RELOADER:
+            print(f"torch.compile failed: {e}")
 
-# Enable mixed precision if requested
+# Mixed precision support
 use_mixed_precision = os.environ.get("SNAC_MIXED_PRECISION", "false").lower() == "true"
-if use_mixed_precision:
+if use_mixed_precision and snac_device == "cuda":
     try:
-        model = model.half()  # Convert to float16
-        print("  ✅ Mixed precision (float16) enabled")
+        model = model.half()
+        if not IS_RELOADER:
+            print("Mixed precision (float16) enabled")
     except Exception as e:
-        print(f"  ⚠️  Mixed precision failed: {e}")
+        if not IS_RELOADER:
+            print(f"Mixed precision failed: {e}")
+        use_mixed_precision = False
 
-print("PyTorch optimizations complete!")
+# Token ID cache for performance optimization
+token_id_cache = {}
+cache_stats = {'hits': 0, 'misses': 0}
 
-def warmup_model():
-    """Warmup the SNAC model to eliminate cold start penalty."""
-    print("Warming up SNAC model...")
-    warmup_start = time.time()
+def turn_token_into_id(token_string, index):
+    """Parse custom tokens from strings and extract numeric IDs with caching."""
+    # Check cache first for speedup
+    cache_key = (token_string.strip(), index % 7)
+    if cache_key in token_id_cache:
+        cache_stats['hits'] += 1
+        return token_id_cache[cache_key]
     
-    # Create dummy inputs for warmup using the same dtype as inference
-    warmup_dtype = torch.float16 if use_mixed_precision else torch.int32
-    dummy_codes_0 = torch.tensor([[1, 2, 3, 4]], device=snac_device, dtype=warmup_dtype)
-    dummy_codes_1 = torch.tensor([[1, 2, 3, 4, 5, 6, 7, 8]], device=snac_device, dtype=warmup_dtype)
-    dummy_codes_2 = torch.tensor([[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]], device=snac_device, dtype=warmup_dtype)
+    cache_stats['misses'] += 1
     
-    codes = [dummy_codes_0, dummy_codes_1, dummy_codes_2]
+    # Early rejection for obvious non-matches
+    if CUSTOM_TOKEN_PREFIX not in token_string:
+        if len(token_id_cache) < MAX_CACHE_SIZE:
+            token_id_cache[cache_key] = None
+        return None
+    
+    token_string = token_string.strip()
+    last_token_start = token_string.rfind(CUSTOM_TOKEN_PREFIX)
+    
+    if last_token_start == -1:
+        if len(token_id_cache) < MAX_CACHE_SIZE:
+            token_id_cache[cache_key] = None
+        return None
+    
+    last_token = token_string[last_token_start:]
+    
+    if not (last_token.startswith(CUSTOM_TOKEN_PREFIX) and last_token.endswith('>')):
+        if len(token_id_cache) < MAX_CACHE_SIZE:
+            token_id_cache[cache_key] = None
+        return None
     
     try:
-        with torch.inference_mode():
-            _ = model.decode(codes)
-        warmup_time = time.time() - warmup_start
-        print(f"Model warmup completed in {warmup_time:.3f}s")
-    except Exception as e:
-        print(f"Warmup failed: {e} - proceeding anyway")
-
-# Perform warmup on module import
-warmup_model()
+        number_str = last_token[14:-1]
+        token_id = int(number_str) - 10 - ((index % 7) * 4096)
+        
+        # Cache the result if it's valid
+        if len(token_id_cache) < MAX_CACHE_SIZE:
+            token_id_cache[cache_key] = token_id
+        
+        return token_id
+    except (ValueError, IndexError):
+        if len(token_id_cache) < MAX_CACHE_SIZE:
+            token_id_cache[cache_key] = None
+        return None
 
 def convert_to_audio(multiframe, count):
-    """Convert multi-frame token data into audio bytes."""
+    """Optimized audio conversion with reduced CPU-GPU transfers"""
     conversion_start = time.time()
     
     if len(multiframe) < 7:
         return None
-
+    
     num_frames = len(multiframe) // 7
     frame = multiframe[:num_frames * 7]
-
+    
     # Time tensor preparation
     tensor_prep_start = time.time()
     
-    # Orpheus-FastAPI optimization: Pre-allocate tensors directly on device
+    # Determine dtype based on mixed precision setting
     dtype = torch.float16 if use_mixed_precision else torch.int32
-
-	 # Use vectorized operations where possible
-    frame_tensor = torch.tensor(frame, dtype=torch.int32, device=snac_device)
     
-    # Pre-allocate tensors with exact sizes (no numpy, no concatenation)
+    # Pre-allocate tensors directly on device for optimal performance
     codes_0 = torch.zeros(num_frames, dtype=dtype, device=snac_device)
-    codes_1 = torch.zeros(num_frames * 2, dtype=dtype, device=snac_device)  
+    codes_1 = torch.zeros(num_frames * 2, dtype=dtype, device=snac_device)
     codes_2 = torch.zeros(num_frames * 4, dtype=dtype, device=snac_device)
     
-    # Direct tensor population - vectorized without numpy
-    for i in range(num_frames):
-        frame_offset = i * 7
-        
-        # codes_0: column 0
-        codes_0[i] = frame_tensor[frame_offset]
-        
-        # codes_1: columns 1 and 4 
-        codes_1[i * 2] = frame_tensor[frame_offset + 1]
-        codes_1[i * 2 + 1] = frame_tensor[frame_offset + 4]
-        
-        # codes_2: columns 2, 3, 5, 6
-        codes_2[i * 4] = frame_tensor[frame_offset + 2]
-        codes_2[i * 4 + 1] = frame_tensor[frame_offset + 3] 
-        codes_2[i * 4 + 2] = frame_tensor[frame_offset + 5]
-        codes_2[i * 4 + 3] = frame_tensor[frame_offset + 6]
+    # Vectorized tensor population - much faster than loops
+    frame_tensor = torch.tensor(frame, dtype=torch.int32, device=snac_device)
+    frame_reshaped = frame_tensor.view(num_frames, 7)
     
-    # Add batch dimension and create codes list
+    # Extract codes using advanced indexing (vectorized)
+    codes_0.copy_(frame_reshaped[:, 0].to(dtype))
+    codes_1[0::2] = frame_reshaped[:, 1].to(dtype)
+    codes_1[1::2] = frame_reshaped[:, 4].to(dtype)
+    codes_2[0::4] = frame_reshaped[:, 2].to(dtype)
+    codes_2[1::4] = frame_reshaped[:, 3].to(dtype)
+    codes_2[2::4] = frame_reshaped[:, 5].to(dtype)
+    codes_2[3::4] = frame_reshaped[:, 6].to(dtype)
+    
+    # Create codes list with batch dimension
     codes = [codes_0.unsqueeze(0), codes_1.unsqueeze(0), codes_2.unsqueeze(0)]
-
-    # Fast validation: check ranges directly without dtype conversion
-    if dtype == torch.int32:
-        # Skip validation if using int32 (already validated by token parsing)
-        valid = True
-    else:
-        # Only validate if using mixed precision
-        valid = (torch.all(codes_0 >= 0) and torch.all(codes_0 <= 4096) and
-                torch.all(codes_1 >= 0) and torch.all(codes_1 <= 4096) and
-                torch.all(codes_2 >= 0) and torch.all(codes_2 <= 4096))
     
-    if not valid:
-        return None
-
+    # Fast validation (skip for int32 as it's already validated)
+    if dtype != torch.int32:
+        if not (torch.all(codes_0 >= 0) and torch.all(codes_0 <= 4096) and
+                torch.all(codes_1 >= 0) and torch.all(codes_1 <= 4096) and
+                torch.all(codes_2 >= 0) and torch.all(codes_2 <= 4096)):
+            return None
+    
     tensor_prep_end = time.time()
     tensor_prep_time = tensor_prep_end - tensor_prep_start
-
+    
     # Time pure SNAC model inference
     model_inference_start = time.time()
-    with torch.inference_mode():
-        audio_hat = model.decode(codes)
+    
+    # Use CUDA stream for parallel processing if available
+    if cuda_stream is not None:
+        with torch.cuda.stream(cuda_stream):
+            with torch.inference_mode():
+                audio_hat = model.decode(codes)
+    else:
+        with torch.inference_mode():
+            audio_hat = model.decode(codes)
+    
     model_inference_end = time.time()
     model_inference_time = model_inference_end - model_inference_start
-
+    
     # Time post-processing
     postprocess_start = time.time()
     audio_slice = audio_hat[:, :, 2048:4096]
-    detached_audio = audio_slice.detach().cpu()
-    audio_np = detached_audio.numpy()
-    audio_int16 = (audio_np * 32767).astype(np.int16)
-    audio_bytes = audio_int16.tobytes()
+    
+    # Optimized scaling for different devices
+    if snac_device == "cuda":
+        # Keep on GPU longer for RTX cards
+        audio_np = (audio_slice * 32767).detach().cpu().numpy().astype(np.int16)
+    else:
+        # Standard CPU processing
+        detached_audio = audio_slice.detach().cpu()
+        audio_np = detached_audio.numpy()
+        audio_np = (audio_np * 32767).astype(np.int16)
+    
+    audio_bytes = audio_np.tobytes()
     postprocess_end = time.time()
     postprocess_time = postprocess_end - postprocess_start
-
+    
     total_conversion_time = postprocess_end - conversion_start
-
-    # Log detailed SNAC timing (only for first few chunks to avoid spam)
+    
+    # Log detailed timing for performance analysis
     if hasattr(convert_to_audio, 'call_count'):
         convert_to_audio.call_count += 1
     else:
         convert_to_audio.call_count = 1
-
+    
     if convert_to_audio.call_count <= 3:
         print(f"  🔧 SNAC BREAKDOWN (call {convert_to_audio.call_count}):")
         print(f"    Tensor preparation: {tensor_prep_time:.3f}s")
@@ -165,59 +236,8 @@ def convert_to_audio(multiframe, count):
         print(f"    Total SNAC time: {total_conversion_time:.3f}s")
     elif convert_to_audio.call_count % 10 == 0:
         print(f"  🔧 SNAC call {convert_to_audio.call_count}: total={total_conversion_time:.3f}s, model={model_inference_time:.3f}s")
-
+    
     return audio_bytes
-
-# Token ID cache for performance optimization
-token_id_cache = {}
-cache_stats = {'hits': 0, 'misses': 0}
-MAX_CACHE_SIZE = 10000
-
-def turn_token_into_id(token_string, index):
-    """Parse custom tokens from strings and extract numeric IDs with caching."""
-    # Check cache first for speedup (Orpheus-FastAPI optimization)
-    cache_key = (token_string.strip(), index % 7)
-    if cache_key in token_id_cache:
-        cache_stats['hits'] += 1
-        return token_id_cache[cache_key]
-    
-    cache_stats['misses'] += 1
-    
-    token_string = token_string.strip()
-    
-    # Find the last token in the string
-    last_token_start = token_string.rfind("<custom_token_")
-    
-    if last_token_start == -1:
-        # Cache negative results too
-        if len(token_id_cache) < MAX_CACHE_SIZE:
-            token_id_cache[cache_key] = None
-        return None
-    
-    # Extract the last token
-    last_token = token_string[last_token_start:]
-    
-    # Process the last token
-    if last_token.startswith("<custom_token_") and last_token.endswith(">"):
-        try:
-            number_str = last_token[14:-1]
-            token_id = int(number_str) - 10 - ((index % 7) * 4096)
-            
-            # Cache the successful result
-            if len(token_id_cache) < MAX_CACHE_SIZE:
-                token_id_cache[cache_key] = token_id
-            
-            return token_id
-        except ValueError:
-            # Cache failed conversions too
-            if len(token_id_cache) < MAX_CACHE_SIZE:
-                token_id_cache[cache_key] = None
-            return None
-    else:
-        # Cache negative results
-        if len(token_id_cache) < MAX_CACHE_SIZE:
-            token_id_cache[cache_key] = None
-        return None
 
 def get_cache_stats():
     """Get token cache performance statistics."""
@@ -231,15 +251,44 @@ def get_cache_stats():
         'hit_rate': hit_rate
     }
 
+def warmup_model():
+    """Warmup the SNAC model to eliminate cold start penalty."""
+    if IS_RELOADER:
+        return
+        
+    print("Warming up SNAC model...")
+    warmup_start = time.time()
+    
+    # Create dummy inputs for warmup using the same dtype as inference
+    warmup_dtype = torch.float16 if use_mixed_precision else torch.int32
+    dummy_codes_0 = torch.tensor([[1, 2, 3, 4]], device=snac_device, dtype=warmup_dtype)
+    dummy_codes_1 = torch.tensor([[1, 2, 3, 4, 5, 6, 7, 8]], device=snac_device, dtype=warmup_dtype)
+    dummy_codes_2 = torch.tensor([[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]], device=snac_device, dtype=warmup_dtype)
+    
+    codes = [dummy_codes_0, dummy_codes_1, dummy_codes_2]
+    
+    try:
+        if cuda_stream is not None:
+            with torch.cuda.stream(cuda_stream):
+                with torch.inference_mode():
+                    _ = model.decode(codes)
+        else:
+            with torch.inference_mode():
+                _ = model.decode(codes)
+        warmup_time = time.time() - warmup_start
+        print(f"Model warmup completed in {warmup_time:.3f}s")
+    except Exception as e:
+        print(f"Warmup failed: {e} - proceeding anyway")
+
 async def tokens_decoder(token_gen):
-    """Asynchronous generator that processes streaming tokens."""
+    """Asynchronous generator that processes streaming tokens with optimized performance."""
     buffer = []
     count = 0
     last_token_time = None
     first_audio_generated = False
     chunk_count = 0
     
-    print("🎵 Starting token decoder...")
+    print("🎵 Starting optimized token decoder...")
     
     async for token_text, token_time in token_gen:
         # Track token timing
@@ -296,7 +345,7 @@ async def tokens_decoder(token_gen):
     print(f"📊 Token cache stats: {stats['hit_rate']:.1f}% hit rate ({stats['hits']} hits, {stats['misses']} misses, {stats['cache_size']} cached)")
 
 def tokens_decoder_sync(syn_token_gen):
-    """Synchronous wrapper for the async token decoder."""
+    """Synchronous wrapper for the async token decoder with performance monitoring."""
     result_queue = queue.Queue()
     sync_start = time.time()
     chunk_count = 0
@@ -323,7 +372,7 @@ def tokens_decoder_sync(syn_token_gen):
     thread = threading.Thread(target=run_async)
     thread.start()
     
-    print("🔄 Starting synchronous token decoder wrapper...")
+    print("🔄 Starting optimized synchronous token decoder wrapper...")
     
     # Yield results as they become available
     while True:
@@ -367,3 +416,13 @@ def tokens_decoder_sync(syn_token_gen):
             break
     
     thread.join()
+
+# Perform warmup on module import
+warmup_model()
+
+if not IS_RELOADER:
+    print("✅ Optimized decoder ready!")
+    print(f"  Device: {snac_device}")
+    print(f"  Mixed precision: {use_mixed_precision}")
+    print(f"  Torch compile: {TORCH_COMPILE_AVAILABLE}")
+    print(f"  CUDA graphs: {CUDA_GRAPHS_AVAILABLE}")
