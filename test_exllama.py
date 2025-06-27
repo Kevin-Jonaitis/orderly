@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script for Phi-3 Mini LLM integration
+Test script for ExLlamaV2 integration
 """
 
 import asyncio
@@ -10,15 +10,15 @@ from pathlib import Path
 # Add backend to path
 sys.path.append(str(Path(__file__).parent / "backend"))
 
-from backend.processors.llm import LLMReasoner
+from backend.processors.exllama_processor import ExLlamaV2Reasoner
 
-async def test_llm():
-    """Test the LLM with hardcoded input"""
-    print("🧠 Testing Phi-3 Mini LLM...")
+async def test_exllama():
+    """Test the ExLlamaV2 with hardcoded input"""
+    print("🧠 Testing ExLlamaV2...")
     
-    # Initialize LLM
-    print("Loading Phi-3 Mini model...")
-    reasoner = LLMReasoner()
+    # Initialize ExLlamaV2
+    print("Loading ExLlamaV2 model...")
+    reasoner = ExLlamaV2Reasoner()
     print("✅ Model loaded successfully!")
     
     # Test with hardcoded input
@@ -37,7 +37,7 @@ Instructions:
 - Always reflect the updated order accurately — if you say you're adding something, it must appear in the list.
 - If a user asks for an item that could be multiple menu items, ask for clarification.
 
-<|end|>
+
 <|user|>
 Previous Order:
 - 1x Bean Burrito
@@ -45,7 +45,7 @@ Previous Order:
 User said: can i get a large cheeseburger with fries and a coke actually skip the coke i want a lemonade. and add 2 tacos. oh, and can i also get one more burrito. and a crunchwrap supreme. make that 2 crunchwraps. and can I get a side of sauce?
 <|end|>
 <|assistant|>
-Sorry, we don’t serve cheeseburgers or fries. We’ve added two tacos, another bean burrito, and two Crunchwrap Supremes, and a Pink Lemonade. For sauces, we have several options. Would you like orange sauce, green sauce, or pink sauce?
+Sorry, we don't serve cheeseburgers or fries. We've added two tacos, another bean burrito, and two Crunchwrap Supremes, and a Pink Lemonade. For sauces, we have several options. Would you like orange sauce, green sauce, or pink sauce?
 
 Updated Order:
 - 2x Bean Burrito
@@ -104,63 +104,6 @@ XXL Grilled Stuft Burrito: Ground beef, rice, beans, guacamole, pico de gallo, c
 Now update the order based on the user request below.
 """
 
-
-#     test_input = """
-# <start_of_turn>user
-# You are a fast-food order taker. You will update the user's current order.
-# Only allow items listed in the menu in the user's order.
-# Do not suggest items that are not on the menu.
-# If the user requests an item not on the menu, apologize, and do not add it to the order.
-# If the item is not listed exactly in the menu, it should NOT be added.
-# Do NOT add things that are NOT in the menu
-# Only add or remove items if the user clearly asks for it.
-
-# Your response should be in two parts:
-# - A short polite human-sounding sentence
-# - The full updated order using this exact format:
-
-# Current Order:
-# - Item
-# - Item
-
-# ONLY use items from this menu:
-# Taco Supreme: Ground beef, lettuce, cheddar cheese, diced tomatoes, sour cream, taco shell  
-# Bean Burrito: Flour tortilla, refried beans, cheddar cheese, red sauce  
-# Cheesy Gordita Crunch: Flatbread, taco shell, seasoned beef, spicy ranch, lettuce, cheddar cheese  
-# Crunchwrap Supreme: Flour tortilla, ground beef, nacho cheese, crunchy tostada shell, lettuce, tomato, sour cream
-
-
-# DO NOT add these, even if the user asks:
-# Potato
-# spaghetti
-# Pony
-# Acid
-
-# Example:
-# User said: "Can I have some spaghetti?"
-# Response:
-# Sorry, those aren't on the menu.
-
-
-# """
-
-#     user_input_one = """<start_of_turn>model
-
-# Current Order:
-# - Bean Burrito
-
-# User said: can i get a large cheeseburger with fries and a coke actually skip the coke i want a lemonade. and add a taco. oh, and can i also get another one of them burritos.
-# <end_of_turn>
-# <start_of_turn>model"""
-
-#     user_input_two = """Current Order:
-# - Taco Supreme
-# - Bean Burrito
-
-# User said: okay actually can I have a Cheesy Gordita Crunch instead of the burrito
-# <end_of_turn>
-# <start_of_turn>model"""
-
     user_input_one = """
 Previous Order:
 - 1x Bean Burrito
@@ -184,7 +127,7 @@ User said: okay actually can I have a Cheesy Gordita Crunch instead of the burri
     # Test streaming inference with real-time output
     print("\n🌊 Testing streaming inference - First input:")
     print("=" * 60)
-    print("\n🤖 LLM Response (streaming): ", end='', flush=True)
+    print("\n🤖 ExLlamaV2 Response (streaming): ", end='', flush=True)
     
     streamed_response_one = ""
     async for token in reasoner.generate_response_stream(test_input + user_input_one):
@@ -196,7 +139,7 @@ User said: okay actually can I have a Cheesy Gordita Crunch instead of the burri
     # Test second input with streaming
     print("\n\n🌊 Testing streaming inference - Second input:")
     print("=" * 60)
-    print("\n🤖 LLM Response (streaming): ", end='', flush=True)
+    print("\n🤖 ExLlamaV2 Response (streaming): ", end='', flush=True)
     
     streamed_response_two = ""
     async for token in reasoner.generate_response_stream(test_input + user_input_two):
@@ -206,5 +149,4 @@ User said: okay actually can I have a Cheesy Gordita Crunch instead of the burri
     print(f"\n\n✅ Complete response: '{streamed_response_two}'")
 
 if __name__ == "__main__":
-    asyncio.run(test_llm())
-    
+    asyncio.run(test_exllama())
