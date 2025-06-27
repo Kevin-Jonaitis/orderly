@@ -128,7 +128,7 @@ class OrpheusCpp:
 
     def _token_gen(self, text: str, voice: str = "tara") -> Generator[tuple[str, float], None, None]:
         text = f"<|audio|>{voice}: {text}<|eot_id|><custom_token_4>"
-        completion_url = "http://localhost:8080/v1/completions"  # Our server endpoint
+        completion_url = "http://localhost:1234/v1/completions"  # Our llama-server endpoint
         data = {
             "stream": True,
             "prompt": text,
