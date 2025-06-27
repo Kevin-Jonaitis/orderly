@@ -26,13 +26,50 @@ async def test_llm():
 You are a fast-food order taker. Your job is to update the user's order based on their request.
 
 Instructions:
+- Always start with a polite human-sounding response.
 - Only add/remove/replace items if the user clearly asks.
 - Only use items from the menu.
 - If the user asks for something off-menu, apologize but do not add it.
 - If they want more of an item, increase its count.
 - Keep existing items unless removed or replaced.
-- Format counts as "2x Crunchwrap Supreme".
+- Format counts as "- 2x Crunchwrap Supreme".
 - Do not include any explanation or suggestions.
+- Always reflect the updated order accurately — if you say you're adding something, it must appear in the list.
+- If a user asks for an item that could be multiple menu items, ask for clarification.
+
+
+<|user|>
+Previous Order:
+- 1x Bean Burrito
+
+User said: can i get a large cheeseburger with fries and a coke actually skip the coke i want a lemonade. and add 2 tacos. oh, and can i also get one more burrito. and a crunchwrap supreme. make that 2 crunchwraps. and can I get a side of sauce?
+<|end|>
+<|assistant|>
+Sorry, we don’t serve cheeseburgers or fries. We’ve added two tacos, another bean burrito, and two Crunchwrap Supremes, and a Pink Lemonade. For sauces, we have several options. Would you like orange sauce, green sauce, or pink sauce?
+
+Updated Order:
+- 2x Bean Burrito
+- 2x Taco Supreme
+- 2x Crunchwrap Supreme
+- 1x Pink Lemonade
+<|end|>
+
+<|user|>
+Previous Order:
+- 1x Taco Supreme
+
+User said: can I also get  a bean burrito, and some and a water
+<|end|>
+<|assistant|>
+Absolutely! I added your taco and water. Is there anything else you'd like?
+
+Updated Order:
+- 1x Taco Supreme
+- 1x Bean Burrito
+- 1x Bottled Water
+<|end|>
+<|user|>
+
 
 Menu:
 Taco Supreme: Ground beef, lettuce, cheddar cheese, diced tomatoes, sour cream, taco shell  
@@ -49,35 +86,20 @@ Strawberry Skittles Freeze: Frozen drink with Skittles flavor
 Nacho Cheese Dip: Melted cheese
 Guacamole Dip: Mashed avocado with spices
 Pico de Gallo: Chopped tomatoes, onions, cilantro, lime juice
-
-
-<|user|>
-Previous Order:
-- 1x Bean Burrito
-
-User said: make it 2 burritos and add a quesadilla
-<|end|>
-<|assistant|>
-Got it! Doubled the burritos and added a quesadilla.
-
-Updated Order:
-- 2x Bean Burrito
-- 1x Cheese Quesadilla
-<|end|>
-
-<|user|>
-Previous Order:
-- 1x Taco Supreme
-
-User said: can I also get a large cheeseburger and fries
-<|end|>
-<|assistant|>
-Sorry, we don’t serve cheeseburgers or fries — but your taco is still in!
-
-Updated Order:
-- 1x Taco Supreme
-<|end|>
-<|user|>
+Avocado Ranch Sauce: Creamy ranch with avocado flavor
+Creamy Jalapeño Sauce: Spicy, creamy jalapeño blend
+Red Sauce: Mild enchilada-style sauce
+Fire Sauce Packet: Very spicy sauce
+Hot Sauce Packet: Spicy sauce
+Mild Sauce Packet: Mildly spicy sauce
+Diablo Sauce Packet: Extra spicy sauce
+Grilled Chicken Taco: Grilled chicken, lettuce, cheddar cheese, soft tortilla
+Double Decker Taco: Crunchy taco with refried beans and soft tortilla
+Loaded Nacho Taco: Seasoned beef, nacho cheese, lettuce, red tortilla strips, soft tortilla
+Spicy Potato Soft Taco: Seasoned potatoes, lettuce, cheddar cheese, chipotle sauce, soft tortilla
+Triple Layer Nachos: Chips, refried beans, red sauce, nacho cheese
+Beefy 5-Layer Burrito: Ground beef, nacho cheese, cheddar cheese, refried beans, sour cream, flour tortilla
+XXL Grilled Stuft Burrito: Ground beef, rice, beans, guacamole, pico de gallo, cheddar cheese, sour cream
 
 Now update the order based on the user request below.
 """
@@ -143,7 +165,7 @@ Now update the order based on the user request below.
 Previous Order:
 - 1x Bean Burrito
 
-User said: can i get a large cheeseburger with fries and a coke actually skip the coke i want a lemonade. and add 2 tacos. oh, and can i also get one more burrito. and a crunchwrap supreme. make that 2 crunchwraps.
+User said: actually swap the bean burrito for a cheesy gordita crunch and add 2 more tacos throw in a drink too maybe that frozen thing also can I get a quesadilla and a hot sauce oh wait, not hot sauce, the really spicy one. also add a side of dip.
 
 <|end|>
 <|assistant|>"""
@@ -154,7 +176,7 @@ Previous Order:
 - 1x Bean Burrito
 - 1x Cheese Quesadilla
 
-User said: okay actually can I have a Cheesy Gordita Crunch instead of the burrito. And can you add a crunchywrap, I love those things.
+User said: okay actually can I have a Cheesy Gordita Crunch instead of the burrito. And can you add a crunchywrap, I love those things. And can you add a chicken salad?
 
 <|end|>
 <|assistant|>"""

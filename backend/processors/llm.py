@@ -52,10 +52,12 @@ class LLMReasoner:
         self.llm = Llama(
             model_path=str(model_path),
             n_gpu_layers=-1,     # Use all GPU layers
-            n_ctx=4096,          # Gemma 2B has 8K context window
-            n_batch=256,         # Smaller batch for stability with large contexts
+            n_ctx=2048,          # Gemma 2B has 8K context window
+            n_batch=512,         # Smaller batch for stability with large contexts
             n_threads=None,      # Let llama.cpp auto-detect optimal threads
             verbose=True,        # Enable to see GPU layer loading
+			temperature=0.0, # Greedy decoding for maximum speed
+			top_k=1,
             # use_mlock=True,
             flash_attn=True,     # Enable Flash Attention for speedup
         )
