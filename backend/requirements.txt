@@ -25,3 +25,7 @@ llama-cpp-python>=0.3.9
 # Option 2: ONNX-ASR (quantized, lightweight)
 onnx_asr
 onnxruntime-gpu  # GPU support for ONNX Runtime
+
+# Orpheus TTS dependencies
+orpheus-speech
+vllm==0.7.3  # Recommended version for Orpheus TTS compatibility

@@ -51,7 +51,7 @@ class ExLlamaV2Reasoner:
         print(f"📋 ExLlamaV2 version: {torch.__version__}")
         
         # Load ExLlamaV2 model
-        model_path = Path(__file__).parent.parent.parent / "models" / "exl2_model"
+        model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-medium-4k-instruct-exl2-4_25"
         print(f"🔧 Loading ExLlamaV2 model from: {model_path}")
         
         # Initialize ExLlamaV2 config (exact pattern from working test)
@@ -93,11 +93,9 @@ class ExLlamaV2Reasoner:
         print("🔧 Initializing streaming generator...")
         self.generator = ExLlamaV2StreamingGenerator(self.model, self.cache, self.tokenizer)
         
-        # Setup simple sampling (exact pattern from working test)
+        # Setup greedy sampling to match llama-cpp-python (temperature=0.0, top_k=1)
         self.settings = ExLlamaV2Sampler.Settings()
-        self.settings.temperature = 0.7
-        self.settings.top_k = 50
-        self.settings.top_p = 0.9
+        self.settings.greedy()  # Sets temperature=0.0 for deterministic output
         
         # Check GPU memory after loading
         if torch.cuda.is_available():
