@@ -17,20 +17,13 @@ def is_reloader_process():
 # Set a flag to avoid repeat messages
 IS_RELOADER = is_reloader_process()
 
-model = SNAC.from_pretrained("hubertsiuzdak/snac_24khz").eval()
-
-# Check if CUDA is available and set device accordingly
+# SNAC model initialization moved to OrpheusTTS processor
+# These variables are kept for compatibility with existing convert_to_audio function
+model = None
 snac_device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-if not IS_RELOADER:
-    print(f"Using device: {snac_device}")
-model = model.to(snac_device)
 
-# Prepare CUDA streams for parallel processing if available
+# CUDA streams moved to OrpheusTTS processor
 cuda_stream = None
-if snac_device == "cuda":
-    cuda_stream = torch.cuda.Stream()
-    if not IS_RELOADER:
-        print("Using CUDA stream for parallel processing")
 
 def convert_to_audio(multiframe, count):
     """
