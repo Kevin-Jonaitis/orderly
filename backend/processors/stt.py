@@ -73,6 +73,7 @@ class WhisperSTTProcessor(BaseSTTProcessor):
         logger.info(f"🚀 GPU warmup completed with {warmup_file} in {warmup_ms:.0f}ms")
     
     async def transcribe(self, wav_bytes: bytes) -> str:
+        print("I AM TRANSCRIBING")
         """Transcribe WAV audio bytes to text"""
         # Save to temporary file
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
@@ -181,7 +182,7 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
         from nemo.collections.asr.parts.utils.rnnt_utils import Hypothesis
         
         # Use the test audio file directly (like nemo_streaming_test.py)
-        audio_file = "test/test_audio.wav"
+        audio_file = "backend/test/test_audio.wav"
         
         if not os.path.exists(audio_file):
             print(f"❌ Audio file not found: {audio_file}")

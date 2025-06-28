@@ -51,7 +51,8 @@ class ExLlamaV2Reasoner:
         print(f"📋 ExLlamaV2 version: {torch.__version__}")
         
         # Load ExLlamaV2 model
-        model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-medium-4k-instruct-exl2-4_25"
+        # ⚠️ DO NOT CHANGE MODEL PATH - Fixed configuration for project
+        model_path = Path(__file__).parent.parent.parent / "models" / "Phi-3-medium-4k-instruct-exl2-4_25"  # ⚠️ FIXED MODEL - DO NOT CHANGE
         print(f"🔧 Loading ExLlamaV2 model from: {model_path}")
         
         # Initialize ExLlamaV2 config (exact pattern from working test)
