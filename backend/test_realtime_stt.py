@@ -81,6 +81,9 @@ class RealTimeSTTProcessor:
             self.step_num = 0
             
             # Minimal buffering - need at least 2 chunks (160ms) for valid mel features
+            # NOTE: We tried processing single 80ms chunks directly, but it caused 
+            # "cannot reshape tensor of 0 elements" errors due to insufficient audio
+            # for NeMo's mel spectrogram computation. Sticking with 160ms (2 chunks).
             self.audio_buffer = []
             self.min_chunks = 2  # 160ms minimum (2 * 80ms chunks)
             
