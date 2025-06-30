@@ -7,7 +7,8 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from main import ParakeetSTTProcessor
+# Import directly from processors to avoid main.py uvicorn dependency
+from processors.stt import ParakeetSTTProcessor
 import time
 import asyncio
 

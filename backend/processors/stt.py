@@ -179,16 +179,20 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
         """Transcribe WAV audio using exact nemo_streaming_test.py approach"""
         import torch
         import os
+        import tempfile
         from nemo.collections.asr.parts.utils.rnnt_utils import Hypothesis
         
-        # Use the test audio file directly (like nemo_streaming_test.py)
-        audio_file = "backend/test/test_audio.wav"
+        # Save wav_bytes to temporary file for processing
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+            tmp_file.write(wav_bytes)
+            tmp_file.flush()
+            audio_file = tmp_file.name
         
         if not os.path.exists(audio_file):
             print(f"❌ Audio file not found: {audio_file}")
             return ""
         
-        print(f"📁 Loading audio file: {audio_file}")
+        print(f"📁 Processing audio data: {len(wav_bytes)} bytes")
         
         # Set up streaming buffer exactly like nemo_streaming_test.py
         streaming_buffer = self.CacheAwareStreamingAudioBuffer(
@@ -288,6 +292,7 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
                             )
 
                 step_ms = (time.time() - step_start) * 1000
+                
                 if debug_mode:
                     current_transcripts = extract_transcriptions(transcribed_texts)
                     print(f"⏱️  Step {step_num}: {step_ms:.0f}ms -> {current_transcripts}")
@@ -319,9 +324,21 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
         )
         total_total = time.time() - start_total
         
-        # Get final result
-        final_text = final_streaming_tran[0] if final_streaming_tran else ""
+        # Get final result - handle both list and empty cases
+        if final_streaming_tran and len(final_streaming_tran) > 0:
+            final_text = final_streaming_tran[0] if isinstance(final_streaming_tran[0], str) else str(final_streaming_tran[0])
+        else:
+            final_text = ""
+            print("⚠️  No transcription results returned from model")
+        
         print(f"⏱️  Total time: {total_total*1000:.0f}ms")
+        print(f"🎯 Final result: '{final_text}'")
+        
+        # Cleanup temporary file
+        try:
+            os.unlink(audio_file)
+        except:
+            pass
         
         return final_text.strip()
 
