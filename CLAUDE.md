@@ -20,6 +20,22 @@ The following model configurations are optimized for this project and must NOT b
 - Model selection: **Phi-3-medium variants only**
 - GPU acceleration: Current settings optimized for hardware
 
+## CRITICAL REQUIREMENT - GPU-Only Execution
+**NEVER ALLOW CPU MODEL EXECUTION**: All models MUST run on GPU. If GPU support is lost or models fall back to CPU execution, this is considered a critical failure that must be immediately fixed. Do not test, accept, or work around CPU execution - always restore full GPU acceleration.
+
+## Environment Setup
+**ALWAYS USE VIRTUAL ENVIRONMENT**: This project requires the virtual environment at `/home/kevin/orderly/venv/` which contains:
+- Modified llama-cpp-python with GPU CUDA support
+- GPU cancellation functionality for real-time STT→LLM pipeline
+- All required dependencies with proper versions
+
+**Critical Dependencies**:
+- **NumPy**: Must be >= 1.22, < 2.0 (for nemo-toolkit and numba compatibility)
+- **CUDA**: Version 12.9 with proper toolkit and nvcc compiler
+- **llama-cpp-python**: Custom build with cancellation support
+
+**To run any Python code**: `source /home/kevin/orderly/venv/bin/activate && cd /home/kevin/orderly/backend && python <script>`
+
 ### What CAN be modified
 - Generation parameters (temperature, top_k, etc.)
 - Prompt templates and system messages

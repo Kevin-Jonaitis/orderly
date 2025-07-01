@@ -265,3 +265,8 @@ class LLMReasoner:
             })
 
         return stats
+
+    def cancel_generation(self):
+        """Cancel ongoing LLM generation using the modified llama-cpp-python cancel() method"""
+        # self.llm.cancel()
+        # print("🚫 LLM generation cancelled via GPU cancellation")

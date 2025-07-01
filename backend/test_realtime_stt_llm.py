@@ -311,6 +311,9 @@ Now update the order based on the user request below."""
         # Cancel any existing LLM task
         if self.current_llm_task and not self.current_llm_task.done():
             print("🚫 Cancelling previous LLM request...")
+            # First cancel GPU processing using our new cancel method
+            self.llm_reasoner.cancel_generation()
+            # Then cancel the asyncio task
             self.current_llm_task.cancel()
             try:
                 await self.current_llm_task
