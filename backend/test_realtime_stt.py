@@ -13,6 +13,7 @@ import signal
 import numpy as np
 import sounddevice as sd
 from pathlib import Path
+from datetime import datetime
 
 # Add the backend directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -184,9 +185,9 @@ class RealTimeSTTProcessor:
             
             # Display result if there's new text
             if current_text.strip():
-                print(f"🎤 [{self.step_num:3d}] {process_time:3.0f}ms: '{current_text}'")
+                print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🎤 [{self.step_num:3d}] {process_time:3.0f}ms: '{current_text}'")
             elif self.step_num % 10 == 0:  # Show progress every 10 processed chunks 
-                print(f"🔄 [{self.step_num:3d}] Processing...")
+                print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🔄 [{self.step_num:3d}] Processing...")
             
             self.step_num += 1
             return current_text

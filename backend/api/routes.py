@@ -127,8 +127,12 @@ def setup_routes(app: FastAPI, stt_processor, llm_reasoner, tts_processor):
             global current_order
             current_order.extend(new_items)
             
-            # Step 4: Generate response
-            response_text = await llm_reasoner.generate_response("TO CHANGE: MY TEXT")
+            # Step 4: Generate response (using streaming method)
+            from llama_cpp import RequestCancellation
+            cancellation = RequestCancellation()
+            response_text = ""
+            async for token in llm_reasoner.generate_response_stream("TO CHANGE: MY TEXT", cancellation):
+                response_text += token
             
             # Step 5: TTS
             audio_response = await tts_processor.synthesize(response_text)

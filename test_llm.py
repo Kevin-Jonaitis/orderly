@@ -187,7 +187,9 @@ User said: okay actually can I have a Cheesy Gordita Crunch instead of the burri
     print("\n🤖 LLM Response (streaming): ", end='', flush=True)
     
     streamed_response_one = ""
-    async for token in reasoner.generate_response_stream(test_input + user_input_one):
+    from llama_cpp import RequestCancellation
+    cancellation = RequestCancellation()
+    async for token in reasoner.generate_response_stream(test_input + user_input_one, cancellation):
         print(token, end='', flush=True)  # Print each token as it arrives
         streamed_response_one += token
     
@@ -199,7 +201,8 @@ User said: okay actually can I have a Cheesy Gordita Crunch instead of the burri
     print("\n🤖 LLM Response (streaming): ", end='', flush=True)
     
     streamed_response_two = ""
-    async for token in reasoner.generate_response_stream(test_input + user_input_two):
+    cancellation2 = RequestCancellation()
+    async for token in reasoner.generate_response_stream(test_input + user_input_two, cancellation2):
         print(token, end='', flush=True)  # Print each token as it arrives
         streamed_response_two += token
     

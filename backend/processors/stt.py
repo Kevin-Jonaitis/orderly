@@ -156,7 +156,7 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
                     self.model.change_decoding_strategy(decoding_cfg)
             
             # Model setup exactly like nemo_streaming_test.py
-            self.model = self.model.cuda()
+            self.model = self.model.to('cpu')
             self.model.eval()
             
             # Store the buffer class for later use

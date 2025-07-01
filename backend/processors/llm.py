@@ -10,10 +10,12 @@ import time
 import logging
 from pathlib import Path
 from typing import List, Dict, Any
-from llama_cpp import Llama, LlamaRAMCache
+from llama_cpp import Llama, LlamaRAMCache, RequestCancellation
 import torch
 
 logger = logging.getLogger(__name__)
+
+import threading
 
 class OrderItem:
     """Order item data model"""
@@ -90,7 +92,8 @@ class LLMReasoner:
             print(f"   Reserved: {torch.cuda.memory_reserved() / (1024*1024):.1f}MB")
         
         warmup_start = time.time()
-        warmup_response = self.llm("Hello", max_tokens=10)
+        warmup_cancellation = RequestCancellation()
+        warmup_response = self.llm("Hello", warmup_cancellation, max_tokens=10)
         warmup_time = (time.time() - warmup_start) * 1000
         
         print("🔍 GPU memory after warmup:")
@@ -123,50 +126,9 @@ class LLMReasoner:
         ]
         return items
 
-    async def generate_response(self, text: str) -> str:
-        print(f"\n🗣  User input: '{text}'")
-
-        # Add context monitoring for large prompts
-        prompt_tokens = len(self.llm.tokenize(text.encode()))
-        context_limit = self.llm.n_ctx()
-        max_response_tokens = 500
-        
-        print(f"📊 Context Analysis:")
-        print(f"   Prompt tokens: {prompt_tokens}")
-        print(f"   Context limit: {context_limit}")
-        print(f"   Current KV cache: {getattr(self.llm, 'n_tokens', 0)} tokens")
-        
-        # Check for context overflow risk
-        if prompt_tokens + max_response_tokens > context_limit:
-            print(f"⚠️  WARNING: Prompt + response ({prompt_tokens + max_response_tokens}) > context limit ({context_limit})")
-            print(f"⚠️  Risk of gibberish output due to context overflow")
-
-        start_time = time.time()
-
-        # Generate response using Phi-3 Mini (run in thread to avoid blocking)
-        response = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: self.llm(text, max_tokens=max_response_tokens,
-			stop=["<|user|>", "<|end|>", "User said:"]
-
-)
-        )
-
-        print(response)
-        response_text = response['choices'][0]['text'].strip()
-
-        latency_ms = (time.time() - start_time) * 1000
-        print(f"🚀 LLM_INFERENCE: {latency_ms:.0f}ms")
-        
-        # Log final context usage
-        final_tokens = getattr(self.llm, 'n_tokens', 0)
-        print(f"📊 Final KV cache: {final_tokens} tokens ({final_tokens/context_limit*100:.1f}% of context)")
-
-        return response_text
-    
-    async def generate_response_stream(self, text: str):
+    async def generate_response_stream(self, text: str, cancellation: RequestCancellation):
         """Generate response with streaming and time-to-first-token metrics"""
-        print(f"\n🗣  User input: '{text}'")
+        # print(f"\n🗣  User input: '{text}'")
 
         # Add context monitoring for large prompts
         prompt_tokens = len(self.llm.tokenize(text.encode()))
@@ -185,7 +147,7 @@ class LLMReasoner:
         word_count = 0
         token_count = 0
         
-        # Create streaming response in executor
+        # Create streaming response in executor with callback cancellation
         def create_stream():
             return self.llm.create_completion(
                 text,
@@ -193,7 +155,8 @@ class LLMReasoner:
                 stop=["<|user|>", "<|end|>", "User said:"],
                 temperature=0.0,
                 top_k=1,
-                stream=True
+                stream=True,
+                should_cancel_callback=cancellation
             )
         
         # Run in executor to avoid blocking
@@ -222,7 +185,6 @@ class LLMReasoner:
                             print(f"🎯 Time to first 5 words: {time_to_5_words_ms:.0f}ms")
                             print(f"📝 First 5 words: {' '.join(words[:5])}")
                     
-                    # Yield the token for streaming
                     yield token
         
         # Final metrics
@@ -268,5 +230,5 @@ class LLMReasoner:
 
     def cancel_generation(self):
         """Cancel ongoing LLM generation using the modified llama-cpp-python cancel() method"""
-        # self.llm.cancel()
+        self.llm.cancel()
         # print("🚫 LLM generation cancelled via GPU cancellation")

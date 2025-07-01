@@ -13,6 +13,7 @@ import signal
 import numpy as np
 import sounddevice as sd
 from pathlib import Path
+from datetime import datetime
 
 # Add the backend directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -20,6 +21,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # Import processors
 from processors.stt import ParakeetSTTProcessor  
 from processors.llm import LLMReasoner
+from llama_cpp import RequestCancellation
 import torch
 import logging
 
@@ -49,6 +51,7 @@ class RealTimeSTTLLMProcessor:
         
         # Request management
         self.current_llm_task = None
+        self.current_llm_cancellation = None  # Track per-request cancellation
         self.accumulated_text = ""
         self.last_unique_text = ""  # Track last unique text to detect new content
         
@@ -66,7 +69,7 @@ Instructions:
 - Format counts as "- 2x Crunchwrap Supreme".
 - Do not include any explanation or suggestions.
 - Always reflect the updated order accurately — if you say you're adding something, it must appear in the list.
-- If a user asks for an item that could be multiple menu items, ask for clarification.
+- If a user asks for an item that could be multiple menu items, ask for clarification, and do not add it to the order.
 
 <|end|>
 <|user|>
@@ -166,8 +169,14 @@ Now update the order based on the user request below."""
                     model.change_decoding_strategy(decoding_cfg)
             
             # Model setup
-            model = model.cuda()
+            model = model.to('cpu')
             model.eval()
+            
+            # DEVICE VERIFICATION: Log where STT model is running
+            stt_device = next(model.parameters()).device
+            print(f"🔍 STT MODEL DEVICE: {stt_device}")
+            print(f"🔍 CUDA available: {torch.cuda.is_available()}")
+            print(f"🔍 Current CUDA device: {torch.cuda.current_device() if torch.cuda.is_available() else 'N/A'}")
             
             # Set attention context size for low latency (80ms)
             ATT_CONTEXT_SIZE = [70, 1]  # 80ms latency
@@ -285,62 +294,53 @@ Now update the order based on the user request below."""
             
             # Handle STT output and LLM pipeline
             if current_text.strip():
-                print(f"🎤 [{self.stt_processor.step_num:3d}] {process_time:3.0f}ms: '{current_text}'")
+                print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🎤 [{self.stt_processor.step_num:3d}] {process_time:3.0f}ms: '{current_text}'")
                 
                 # Only process if this is actually NEW text
                 if current_text.strip() != self.last_unique_text:
+                    print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] FOUND NEW TEXT: '{current_text.strip()}' (was: '{self.last_unique_text}')")
                     # Genuinely new text detected
                     self.last_unique_text = current_text.strip()
                     # Replace accumulated text instead of appending (STT gives cumulative results)
                     self.accumulated_text = current_text.strip()
                     
-                    # Cancel existing LLM and start new processing immediately
-                    await self._schedule_llm_processing()
-                # If same text as before, don't cancel LLM
+                    # Cancel existing LLM and start new processing immediately (non-blocking)
+                    # Cancel any existing LLM request using callback
+                    if self.current_llm_cancellation:
+                        print("🚫 Cancelling previous LLM request via callback...")
+                        self.current_llm_cancellation.cancel()
+                    else:
+                        print("NO PREVIOUS LLM TASK FOUND")
+                    
+                    # Create new cancellation object and LLM task immediately (no debouncing)
+                    current_cancellation = RequestCancellation()
+                    self.current_llm_cancellation = current_cancellation
+
+                    self.current_llm_task = asyncio.create_task(self._llm_processing(current_cancellation, current_text.strip()))
+                else:
+                    # Same text as before, don't cancel LLM
+                    print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] TEXT UNCHANGED: '{current_text.strip()}' == '{self.last_unique_text}'")
                 
             elif self.stt_processor.step_num % 10 == 0:  # Show progress every 10 processed chunks 
-                print(f"🔄 [{self.stt_processor.step_num:3d}] Processing...")
+                print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🔄 [{self.stt_processor.step_num:3d}] Processing...")
             
             self.stt_processor.step_num += 1
             
         except Exception as e:
             print(f"❌ Error processing chunk {self.stt_processor.step_num}: {e}")
     
-    async def _schedule_llm_processing(self):
-        """Schedule LLM processing immediately when new text is detected"""
-        # Cancel any existing LLM task
-        if self.current_llm_task and not self.current_llm_task.done():
-            print("🚫 Cancelling previous LLM request...")
-            # First cancel GPU processing using our new cancel method
-            self.llm_reasoner.cancel_generation()
-            # Then cancel the asyncio task
-            self.current_llm_task.cancel()
-            try:
-                await self.current_llm_task
-            except asyncio.CancelledError:
-                pass  # Expected when cancelling
-        
-        # Create new LLM task immediately (no debouncing)
-        self.current_llm_task = asyncio.create_task(self._llm_processing())
-    
-    async def _llm_processing(self):
-        """Process accumulated text with LLM immediately"""
+    async def _llm_processing(self, current_llm_cancellation, text_to_process: str):
+        """Process text with LLM immediately"""
         try:
-            # Check if we still have text to process
-            if not self.accumulated_text.strip():
-                return
+            llm_prompt = f"{self.test_input}\n\nPrevious Order:\n- (empty)\n\nUser said: {text_to_process}\n\n<|end|>\n<|assistant|>"
             
-            # Prepare LLM input with proper format from test_llm
-            user_input = self.accumulated_text.strip()
-            llm_prompt = f"{self.test_input}\n\nPrevious Order:\n- (empty)\n\nUser said: {user_input}\n\n<|end|>\n<|assistant|>"
-            
-            print(f"\n🧠 Sending to LLM: '{user_input}'")
+            print(f"\n[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🧠 Sending to LLM: '{text_to_process}'")
             
             # Generate streaming response using LLMReasoner
             response_start = time.time()
             
             full_response = ""
-            async for token in self.llm_reasoner.generate_response_stream(llm_prompt):
+            async for token in self.llm_reasoner.generate_response_stream(llm_prompt, current_llm_cancellation):
                 full_response += token
                 # Print streaming output in real-time
                 print(token, end='', flush=True)
@@ -348,6 +348,11 @@ Now update the order based on the user request below."""
             response_time = (time.time() - response_start) * 1000
             print(f"\n✅ LLM response ({response_time:.0f}ms): '{full_response.strip()}'")
             
+            
+            # Clear accumulated text after processing
+            self.accumulated_text = ""
+            
+       
             # Clear accumulated text after processing
             self.accumulated_text = ""
             
@@ -356,6 +361,23 @@ Now update the order based on the user request below."""
             raise
         except Exception as e:
             print(f"❌ Error in LLM processing: {e}")
+    
+    async def _mock_llm_stream(self, text_to_process: str):
+        """Mock LLM streaming to test if concurrency issues are llama-cpp specific"""
+        mock_response = f"I understand you said '{text_to_process}'. This is a mock response to test concurrent processing."
+        
+        # Split into tokens (words and punctuation)
+        import re
+        tokens = re.findall(r'\w+|\W+', mock_response)
+        
+        for i, token in enumerate(tokens):
+            # Small delay between tokens to simulate LLM processing
+            await asyncio.sleep(0.05)  # 50ms per token
+            yield token
+            
+            # Every few tokens, show progress
+            if i % 5 == 0:
+                print(f"\n[MOCK] Processing token {i+1}/{len(tokens)}", flush=True)
 
 async def stream_microphone_realtime(device_id=None, show_devices=False):
     """Stream microphone audio with real-time STT → LLM processing"""
