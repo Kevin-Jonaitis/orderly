@@ -214,7 +214,7 @@ Now update the order based on the user request below."""
         ]
         return items
 
-    async def generate_response_stream(self, user_text: str, cancellation: RequestCancellation):
+    def generate_response_stream(self, user_text: str, cancellation: RequestCancellation):
         """Generate response with streaming and time-to-first-token metrics"""
         # Build full prompt with instructions and user input
         full_prompt = f"{self.instructions_and_menu}\n\nPrevious Order:\n- (empty)\n\nUser said: {user_text}\n\n<|end|>\n<|assistant|>"
@@ -236,22 +236,27 @@ Now update the order based on the user request below."""
         word_count = 0
         token_count = 0
         
-        # Create streaming response in executor with callback cancellation
-        def create_stream():
-            return self.llm.create_completion(
-                full_prompt,
-                max_tokens=max_response_tokens,
-                stop=["<|user|>", "<|end|>", "User said:"],
-                temperature=0.0,
-                top_k=1,
-                stream=True,
-                should_cancel_callback=cancellation
-            )
+        # Create streaming response with callback cancellation
+        print(f"📍 LLM.generate_response_stream called with cancellation: id={id(cancellation)} at {hex(id(cancellation))}")
+        print(f"   Thread ID in generate_response_stream: {threading.current_thread().ident}")
         
-        # Run in executor to avoid blocking
-        stream = await asyncio.get_event_loop().run_in_executor(None, create_stream)
+        stream = self.llm.create_completion(
+            full_prompt,
+            max_tokens=max_response_tokens,
+            stop=["<|user|>", "<|end|>", "User said:"],
+            temperature=0.0,
+            top_k=1,
+            stream=True,
+            should_cancel_callback=cancellation
+        )
         
-        for output in stream:
+        for i, output in enumerate(stream):
+            if i % 10 == 0:  # Check every 10 tokens
+                if hasattr(cancellation, 'cancelled'):
+                    print(f"\n   Checking cancellation at token {i}: {cancellation.cancelled}")
+                else:
+                    print(f"\n   Checking cancellation at token {i}: cancellation has no is_cancelled method")
+            
             if 'choices' in output and len(output['choices']) > 0:
                 token = output['choices'][0].get('text', '')
                 if token:

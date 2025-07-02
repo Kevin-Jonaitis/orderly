@@ -198,7 +198,7 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
         else:
             final_text = ""
         
-        logger.info(f"🎤 STT: {total_time:.0f}ms → '{final_text.strip()}'")
+        logger.info(f"🎤AUDIO STREAMER STT: {total_time:.0f}ms → '{final_text.strip()}'")
         
         # Cleanup
         try:
@@ -293,7 +293,7 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
             
             # Log results
             if current_text.strip():
-                print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🎤 [{self.step_num:3d}] {process_time:3.0f}ms: '{current_text}'")
+                print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🎤 AUDIO OUTPUT [{self.step_num:3d}] {process_time:3.0f}ms: '{current_text}'")
             elif self.step_num % 10 == 0:  # Show progress every 10 processed chunks 
                 print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🔄 [{self.step_num:3d}] Processing...")
             
