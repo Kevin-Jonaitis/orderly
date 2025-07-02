@@ -264,19 +264,17 @@ class OrpheusTTS:
         total_token_time = time.time() - request_start
         print(f"Token generation complete: {token_count} tokens in {total_token_time:.3f}s ({token_count/total_token_time:.1f} tokens/sec)")
     
-    def tts_streaming(self, text: str, voice: str = "tara", save_chunks: bool = False, chunk_prefix: str = "chunk"):
+    def tts_streaming(self, text: str, voice: str = "tara", save_file: str = None):
         """
         Generate TTS audio with streaming support using integrated models.
         
         Args:
             text: The text to convert to speech
             voice: The voice to use (default: "tara")
-            save_chunks: Whether to save individual chunks to disk
-            chunk_prefix: Prefix for chunk filenames
+            save_file: Optional file path to save complete audio
             
         Yields:
-            Individual chunks: (sample_rate, audio_array, chunk_count)
-            Final result: (sample_rate, audio_data, total_time, audio_duration, is_final)
+            Individual chunks: (sample_rate, float32_audio_array, chunk_count)
         """
         import soundfile
         
@@ -284,7 +282,7 @@ class OrpheusTTS:
         
         print(f"\n=== Streaming TTS Generation Started ===")
         print(f"Input text: '{text}' (voice: {voice})")
-        print(f"Save individual chunks: {save_chunks}")
+        print(f"Save to file: {save_file if save_file else 'No'}")
         
         buffer = []
         first_audio_chunk_time = None
@@ -318,16 +316,13 @@ class OrpheusTTS:
             else:
                 print(f"Audio chunk {chunk_count}: {time_since_last:.3f}s since last chunk")
             
-            audio_array = np.frombuffer(audio_bytes, dtype=np.int16).reshape(1, -1)
+            # Convert to normalized float32 for streaming
+            audio_int16 = np.frombuffer(audio_bytes, dtype=np.int16).reshape(1, -1)
+            audio_array = audio_int16.astype(np.float32) / 32767.0  # Normalize to [-1, 1]
             buffer.append(audio_array)
             
             # Update last chunk time for next iteration
             last_chunk_time = current_chunk_time
-            
-            if save_chunks:
-                chunk_filename = f"{chunk_prefix}_{chunk_count:03d}.wav"
-                soundfile.write(chunk_filename, audio_array.squeeze(), 24000)
-                print(f"💾 Saved chunk {chunk_count}: {chunk_filename}")
             
             # Yield each chunk for real-time streaming
             yield (24000, audio_array, chunk_count)
@@ -336,7 +331,7 @@ class OrpheusTTS:
         total_time = time.time() - overall_start
         
         if buffer:
-            # Combine all chunks into final audio
+            # Combine all chunks for internal file saving if requested
             audio_data = np.concatenate(buffer, axis=1)
             audio_duration = audio_data.shape[1] / 24000
             
@@ -348,7 +343,11 @@ class OrpheusTTS:
             print(f"Audio decoding time: {decode_time:.3f}s")
             print(f"Audio duration: {audio_duration:.2f}s")
             
-            yield (24000, audio_data, total_time, audio_duration, True)  # Final combined result
+            # Save file internally if requested
+            if save_file:
+                # Convert back to int16 for file saving
+                audio_int16 = (audio_data * 32767).astype(np.int16)
+                soundfile.write(save_file, audio_int16.squeeze(), 24000)
+                print(f"📁 Audio saved to {save_file}")
         else:
             print("❌ No audio generated!")
-            yield (24000, np.array([], dtype=np.int16).reshape(1, 0), total_time, 0.0, True)
