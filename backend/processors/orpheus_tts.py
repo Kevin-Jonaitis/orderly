@@ -213,38 +213,6 @@ class OrpheusTTS:
                     if audio_samples is not None:
                         yield audio_samples
         
-        # CRITICAL: End-of-generation handling - process all remaining frames
-        # Process remaining complete frames (ideal size)
-        if len(buffer) >= 49:
-            buffer_to_proc = buffer[-49:]
-            audio_samples = self._convert_to_audio(buffer_to_proc, count)
-            if audio_samples is not None:
-                yield audio_samples
-                
-        # Process any additional complete frames (minimum size)
-        elif len(buffer) >= 28:
-            buffer_to_proc = buffer[-28:]
-            audio_samples = self._convert_to_audio(buffer_to_proc, count)
-            if audio_samples is not None:
-                yield audio_samples
-                
-        # Final special case: even if we don't have minimum frames, try to process
-        # what we have by padding with silence tokens that won't affect the audio
-        elif len(buffer) >= 7:
-            # Pad to minimum frame requirement with copies of the final token
-            # This is more continuous than using unrelated tokens from the beginning
-            last_token = buffer[-1]
-            padding_needed = 28 - len(buffer)
-            
-            # Create a padding array of copies of the last token
-            # This maintains continuity much better than circular buffering
-            padding = [last_token] * padding_needed
-            padded_buffer = buffer + padding
-            
-            print(f"Processing final partial frame: {len(buffer)} tokens + {padding_needed} repeated-token padding")
-            audio_samples = self._convert_to_audio(padded_buffer, count)
-            if audio_samples is not None:
-                yield audio_samples
     
     def _generate_tokens_stream(self, text: str, voice: str = "tara") -> Generator[str, None, None]:
         """Generate tokens using direct Orpheus model inference"""
