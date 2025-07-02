@@ -10,6 +10,7 @@ import multiprocessing
 import queue
 from datetime import datetime
 import threading
+import time
 
 # Add the backend directory to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -19,10 +20,12 @@ from processors.llm import LLMReasoner
 class LLMProcess(multiprocessing.Process):
     """Process that handles LLM text processing and response generation"""
     
-    def __init__(self, text_queue, tts_text_queue=None):
+    def __init__(self, text_queue, tts_text_queue, timestamp_llm_start, timestamp_llm_complete):
         super().__init__()
         self.text_queue = text_queue
         self.tts_text_queue = tts_text_queue  # Queue to send complete responses to TTS
+        self.timestamp_llm_start = timestamp_llm_start
+        self.timestamp_llm_complete = timestamp_llm_complete
         self.should_cancel = False  # Simple flag for cancellation
         
     def run(self):
@@ -91,6 +94,9 @@ class LLMProcess(multiprocessing.Process):
     
     def _stream_response(self, llm_reasoner, text):
         """Stream LLM response to console AND accumulate for TTS"""
+        # Record timestamp when LLM starts processing
+        self.timestamp_llm_start.value = time.time()
+        
         print(f"\n[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🧠 Processing: '{text}'")
         print("Response: ", end='', flush=True)
         
@@ -107,6 +113,9 @@ class LLMProcess(multiprocessing.Process):
         
         # Send complete response to TTS if not cancelled and TTS queue exists
         if not self.should_cancel and self.tts_text_queue is not None and complete_response.strip():
+            # Record timestamp when LLM completes and sends to TTS
+            self.timestamp_llm_complete.value = time.time()
+            
             print(f"\n🎵 Sending complete response to TTS: '{complete_response[:50]}{'...' if len(complete_response) > 50 else ''}'")
             self.tts_text_queue.put(complete_response.strip())
         

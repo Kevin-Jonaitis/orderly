@@ -223,7 +223,7 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
             
             if len(self.audio_buffer) < min_samples:
                 # Need more chunks for stable processing
-                return ""
+                return "", 0.0
             
             # Take exactly 2 chunks worth of audio
             audio_to_process = np.array(self.audio_buffer[:min_samples])
@@ -248,7 +248,7 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
             
             # Check if we got valid features
             if processed_signal.numel() == 0 or processed_signal_length.item() == 0:
-                return ""
+                return "", 0.0
             
             # Process with streaming model
             start_time = time.time()
@@ -294,11 +294,11 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
                 print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🔄 [{self.step_num:3d}] Processing...")
             
             self.step_num += 1
-            return current_text.strip()
+            return current_text.strip(), process_time
             
         except Exception as e:
             logger.error(f"❌ Error processing chunk {self.step_num}: {e}")
-            return ""
+            return "", 0.0
 
 # ================== STT FACTORY ==================
 def create_stt_processor(model_name: str = "realtime") -> BaseSTTProcessor:

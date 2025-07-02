@@ -9,6 +9,7 @@ import asyncio
 import multiprocessing
 import numpy as np
 import queue
+import time
 
 # Add the backend directory to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,9 +24,10 @@ CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION_MS / 1000)  # 1920 samples at 24kH
 class STTAudioProcess(multiprocessing.Process):
     """Process that handles audio capture and STT processing"""
     
-    def __init__(self, text_queue):
+    def __init__(self, text_queue, stt_process_time):
         super().__init__()
         self.text_queue = text_queue
+        self.stt_process_time = stt_process_time
         
     def run(self):
         """Main process loop - runs audio capture and STT"""
@@ -79,10 +81,14 @@ class STTAudioProcess(multiprocessing.Process):
             # Get audio chunk from thread-safe queue (blocking)
             audio_chunk = audio_queue.get(block=True)
             
-            # Process through STT
-            text = await stt_processor.process_audio_chunk(audio_chunk)
+            # Process through STT - now returns (text, process_time)
+            result = await stt_processor.process_audio_chunk(audio_chunk)
+            text, process_time = result
             
             if text.strip():
+                # Store the processing time for latency tracking
+                self.stt_process_time.value = process_time
+                
                 # Send text to LLM process - crash if queue full
                 try:
                     self.text_queue.put(text.strip(), block=False)
