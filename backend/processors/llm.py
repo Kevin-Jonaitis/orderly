@@ -10,12 +10,10 @@ import time
 import logging
 from pathlib import Path
 from typing import List, Dict, Any
-from llama_cpp import Llama, LlamaRAMCache, RequestCancellation
+from llama_cpp import Llama, LlamaRAMCache
 import torch
 
 logger = logging.getLogger(__name__)
-
-import threading
 
 class OrderItem:
     """Order item data model"""
@@ -92,8 +90,7 @@ class LLMReasoner:
             print(f"   Reserved: {torch.cuda.memory_reserved() / (1024*1024):.1f}MB")
         
         warmup_start = time.time()
-        warmup_cancellation = RequestCancellation()
-        warmup_response = self.llm("Hello", warmup_cancellation, max_tokens=10)
+        warmup_response = self.llm("Hello", max_tokens=10)
         warmup_time = (time.time() - warmup_start) * 1000
         
         print("🔍 GPU memory after warmup:")
@@ -214,7 +211,7 @@ Now update the order based on the user request below."""
         ]
         return items
 
-    def generate_response_stream(self, user_text: str, cancellation: RequestCancellation):
+    def generate_response_stream(self, user_text: str, cancellation=None):
         """Generate response with streaming and time-to-first-token metrics"""
         # Build full prompt with instructions and user input
         full_prompt = f"{self.instructions_and_menu}\n\nPrevious Order:\n- (empty)\n\nUser said: {user_text}\n\n<|end|>\n<|assistant|>"
@@ -236,26 +233,17 @@ Now update the order based on the user request below."""
         word_count = 0
         token_count = 0
         
-        # Create streaming response with callback cancellation
-        print(f"📍 LLM.generate_response_stream called with cancellation: id={id(cancellation)} at {hex(id(cancellation))}")
-        print(f"   Thread ID in generate_response_stream: {threading.current_thread().ident}")
-        
+        # Create streaming response
         stream = self.llm.create_completion(
             full_prompt,
             max_tokens=max_response_tokens,
             stop=["<|user|>", "<|end|>", "User said:"],
             temperature=0.0,
             top_k=1,
-            stream=True,
-            should_cancel_callback=cancellation
+            stream=True
         )
         
         for i, output in enumerate(stream):
-            if i % 10 == 0:  # Check every 10 tokens
-                if hasattr(cancellation, 'cancelled'):
-                    print(f"\n   Checking cancellation at token {i}: {cancellation.cancelled}")
-                else:
-                    print(f"\n   Checking cancellation at token {i}: cancellation has no is_cancelled method")
             
             if 'choices' in output and len(output['choices']) > 0:
                 token = output['choices'][0].get('text', '')

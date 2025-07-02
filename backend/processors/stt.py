@@ -68,10 +68,6 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
             self.model = self.model.to('cpu')
             self.model.eval()
             
-            # DEVICE VERIFICATION: Log where STT model is running
-            stt_device = next(self.model.parameters()).device
-            logger.info(f"🔍 STT MODEL DEVICE: {stt_device}")
-            
             # Store buffer class
             self.CacheAwareStreamingAudioBuffer = CacheAwareStreamingAudioBuffer
             

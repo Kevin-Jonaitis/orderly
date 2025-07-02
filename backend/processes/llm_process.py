@@ -68,11 +68,14 @@ class LLMProcess(multiprocessing.Process):
                     print("🚫 Cancelling previous LLM task...")
                     self.should_cancel = True
                     # Wait for the task to finish
+                    import time
+                    cancel_start = time.time()
                     try:
                         await current_task
                     except Exception as e:
                         print(f"❌ Task exception: {type(e).__name__}: {e}")
-                    print("✅ Previous task finished")
+                    cancel_duration = (time.time() - cancel_start) * 1000
+                    print(f"✅ Previous task finished in {cancel_duration:.1f}ms")
                 
                 # Reset flag for new stream
                 self.should_cancel = False

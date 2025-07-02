@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Real-time STT → LLM Pipeline
-Combines streaming STT with LLM processing, supporting request cancellation and KV cache preservation.
+Combines streaming STT with LLM processing with KV cache preservation.
 """
 
 import sys
@@ -21,7 +21,6 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # Import processors
 from processors.stt import RealTimeSTTProcessor  
 from processors.llm import LLMReasoner
-from llama_cpp import RequestCancellation
 import torch
 import logging
 
@@ -33,7 +32,7 @@ CHUNK_DURATION_MS = 80  # 80ms chunks like rust server
 CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION_MS / 1000)  # 1920 samples at 24kHz
 
 class RealTimeSTTLLMProcessor:
-    """Combined real-time STT → LLM processor with request cancellation and KV cache management"""
+    """Combined real-time STT → LLM processor with KV cache management"""
     
     def __init__(self):
         print("🚀 Initializing combined STT → LLM pipeline...")
@@ -51,7 +50,7 @@ class RealTimeSTTLLMProcessor:
         
         # Request management
         self.current_llm_task = None
-        self.current_llm_cancellation = None  # Track per-request cancellation
+        # Track current LLM task
         self.accumulated_text = ""
         self.last_unique_text = ""  # Track last unique text to detect new content
         
@@ -75,18 +74,15 @@ class RealTimeSTTLLMProcessor:
                     self.accumulated_text = current_text.strip()
                     
                     # Cancel existing LLM and start new processing immediately (non-blocking)
-                    # Cancel any existing LLM request using callback
-                    if self.current_llm_cancellation:
-                        print("🚫 Cancelling previous LLM request via callback...")
-                        self.current_llm_cancellation.cancel()
+                    # Cancel any existing LLM task
+                    if self.current_llm_task and not self.current_llm_task.done():
+                        print("🚫 Cancelling previous LLM task...")
+                        self.current_llm_task.cancel()
                     else:
                         print("NO PREVIOUS LLM TASK FOUND")
                     
-                    # Create new cancellation object and LLM task immediately (no debouncing)
-                    current_cancellation = RequestCancellation()
-                    self.current_llm_cancellation = current_cancellation
-
-                    self.current_llm_task = asyncio.create_task(self._llm_processing(current_cancellation, current_text.strip()))
+                    # Create new LLM task immediately (no debouncing)
+                    self.current_llm_task = asyncio.create_task(self._llm_processing(None, current_text.strip()))
                 else:
                     # Same text as before, don't cancel LLM
                     print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] TEXT UNCHANGED: '{current_text.strip()}' == '{self.last_unique_text}'")
@@ -94,7 +90,7 @@ class RealTimeSTTLLMProcessor:
         except Exception as e:
             print(f"❌ Error processing audio chunk: {e}")
     
-    async def _llm_processing(self, current_llm_cancellation, text_to_process: str):
+    async def _llm_processing(self, _, text_to_process: str):
         """Process text with LLM immediately"""
         try:
             print(f"\n[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🧠 Sending to LLM: '{text_to_process}'")
@@ -103,7 +99,7 @@ class RealTimeSTTLLMProcessor:
             response_start = time.time()
             
             full_response = ""
-            async for token in self.llm_reasoner.generate_response_stream(text_to_process, current_llm_cancellation):
+            for token in self.llm_reasoner.generate_response_stream(text_to_process, None):
                 full_response += token
                 # Print streaming output in real-time
                 print(token, end='', flush=True)

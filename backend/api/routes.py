@@ -128,10 +128,8 @@ def setup_routes(app: FastAPI, stt_processor, llm_reasoner, tts_processor):
             current_order.extend(new_items)
             
             # Step 4: Generate response (using streaming method)
-            from llama_cpp import RequestCancellation
-            cancellation = RequestCancellation()
             response_text = ""
-            async for token in llm_reasoner.generate_response_stream("TO CHANGE: MY TEXT", cancellation):
+            for token in llm_reasoner.generate_response_stream("TO CHANGE: MY TEXT", None):
                 response_text += token
             
             # Step 5: TTS
