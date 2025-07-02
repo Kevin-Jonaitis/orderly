@@ -104,6 +104,11 @@ class LLMReasoner:
         print(f"🔥 Model warmup: {warmup_time:.0f}ms")
         print(f"🔥 Warmup response: {warmup_response['choices'][0]['text'][:50]}...")
 
+        # Synchronize CUDA context to prevent STT conflicts
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            print("🔄 CUDA context synchronized for STT compatibility")
+
         # Log initial GPU memory usage
         self._log_gpu_memory("LLM_INIT")
 

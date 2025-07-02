@@ -23,93 +23,6 @@ class BaseSTTProcessor(ABC):
     async def transcribe(self, wav_bytes: bytes) -> str:
         pass
 
-class WhisperSTTProcessor(BaseSTTProcessor):
-    """Real-time STT using Faster-Whisper"""
-    
-    def __init__(self):
-        from faster_whisper import WhisperModel
-        import os
-        
-        # Suppress various warning outputs
-        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-        os.environ['TOKENIZERS_PARALLELISM'] = 'false'
-        
-        logger.info("Loading Faster-Whisper model (tiny.en, GPU optimized, int8)")
-        self.model = WhisperModel(
-            "tiny.en", 
-            device="cuda", 
-            compute_type="int8",
-            device_index=0,
-            cpu_threads=0  # Force GPU-only processing
-        )
-        logger.info("✅ Faster-Whisper GPU model loaded successfully")
-        self.device = "GPU"
-        
-        # Warm up the model
-        logger.info("🔥 Warming up Whisper GPU model...")
-        self._warmup_model()
-    
-    def _warmup_model(self):
-        """Warm up the model with actual audio file to avoid cold start"""
-        warmup_file = "test/warm_up.wav"
-        
-        start_time = time.time()
-        segments, _ = self.model.transcribe(
-            warmup_file,
-            beam_size=1,
-            best_of=1,
-            temperature=0,
-            condition_on_previous_text=False,
-            word_timestamps=False,
-            language="en",
-            task="transcribe",
-            vad_filter=False,
-            vad_parameters=None
-        )
-        # Force evaluation of all segments
-        list(segments)
-        warmup_ms = (time.time() - start_time) * 1000
-        
-        logger.info(f"🚀 GPU warmup completed with {warmup_file} in {warmup_ms:.0f}ms")
-    
-    async def transcribe(self, wav_bytes: bytes) -> str:
-        print("I AM TRANSCRIBING")
-        """Transcribe WAV audio bytes to text"""
-        # Save to temporary file
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
-            tmp_file.write(wav_bytes)
-            tmp_file.flush()
-            
-            # Time the complete inference process
-            inference_start = time.time()
-            segments, info = self.model.transcribe(
-                tmp_file.name,
-                beam_size=1,           # Fastest decoding
-                best_of=1,             # No multiple candidates
-                temperature=0,         # Deterministic output
-                condition_on_previous_text=True,  # No context carryover
-                word_timestamps=False, # Skip word-level timestamps
-                language="en",
-                task="transcribe",
-                vad_filter=False,      # Skip voice activity detection
-                vad_parameters=None
-            )
-            
-            # Process segments (where the real work happens)
-            text = " ".join([segment.text.strip() for segment in segments])
-            inference_ms = (time.time() - inference_start) * 1000
-            
-        # Cleanup
-        import os
-        os.unlink(tmp_file.name)
-        
-        # Calculate performance metrics
-        duration_seconds = len(wav_bytes) / (16000 * 2)  # Approximate duration
-        realtime_factor = duration_seconds * 1000 / inference_ms
-        
-        print(f"🎤 STT: {inference_ms:.0f}ms ({realtime_factor:.1f}x realtime) → '{text}'")
-        
-        return text.strip()
 
 class ParakeetSTTProcessor(BaseSTTProcessor):
     """Real-time STT using Parakeet (NeMo ASR) - stripped down to match nemo_streaming_test.py exactly"""
@@ -345,9 +258,7 @@ class ParakeetSTTProcessor(BaseSTTProcessor):
 # ================== STT FACTORY ==================
 def create_stt_processor(model_name: str = "parakeet") -> BaseSTTProcessor:
     """Factory function to create the selected STT processor"""
-    if model_name == "whisper":
-        return WhisperSTTProcessor()
-    elif model_name == "parakeet":
+    if model_name == "parakeet":
         return ParakeetSTTProcessor()
     else:
-        raise ValueError(f"Unknown STT model: {model_name}. Options: 'whisper', 'parakeet'")
+        raise ValueError(f"Unknown STT model: {model_name}. Only 'parakeet' is supported.")
