@@ -88,7 +88,7 @@ signal.signal(signal.SIGTERM, signal_handler)  # Termination
 if __name__ == "__main__":
     # ================== STT MODEL SELECTION ==================
     # Change this variable to switch between STT models
-    STT_MODEL = "parakeet"  # Only parakeet supported
+    STT_MODEL = "realtime"  # Only realtime supported
     # ==========================================================
     
     # Initialize processors with sequential loading and delays

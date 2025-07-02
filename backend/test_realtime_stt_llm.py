@@ -19,7 +19,7 @@ from datetime import datetime
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Import processors
-from processors.stt import ParakeetSTTProcessor  
+from processors.stt import RealTimeSTTProcessor  
 from processors.llm import LLMReasoner
 from llama_cpp import RequestCancellation
 import torch
@@ -39,9 +39,9 @@ class RealTimeSTTLLMProcessor:
         print("🚀 Initializing combined STT → LLM pipeline...")
         start_init = time.time()
         
-        # Initialize STT processor (reusing the proven implementation)
+        # Initialize STT processor
         print("📝 Loading STT processor...")
-        self.stt_processor = self._init_stt_processor()
+        self.stt_processor = RealTimeSTTProcessor()
         print("✅ STT processor loaded successfully")
         
         # Initialize LLM processor
@@ -55,247 +55,17 @@ class RealTimeSTTLLMProcessor:
         self.accumulated_text = ""
         self.last_unique_text = ""  # Track last unique text to detect new content
         
-        # Test input copied exactly from test_llm.py
-        self.test_input = """<|user|>
-You are a fast-food order taker. Your job is to update the user's order based on their request.
-
-Instructions:
-- Always start with a polite human-sounding response.
-- Only add/remove/replace items if the user clearly asks.
-- Only use items from the menu.
-- If the user asks for something off-menu, apologize but do not add it.
-- If they want more of an item, increase its count.
-- Keep existing items unless removed or replaced.
-- Format counts as "- 2x Crunchwrap Supreme".
-- Do not include any explanation or suggestions.
-- Always reflect the updated order accurately — if you say you're adding something, it must appear in the list.
-- If a user asks for an item that could be multiple menu items, ask for clarification, and do not add it to the order.
-
-<|end|>
-<|user|>
-Previous Order:
-- 1x Bean Burrito
-
-User said: can i get a large cheeseburger with fries and a coke actually skip the coke i want a lemonade. and add 2 tacos. oh, and can i also get one more burrito. and a crunchwrap supreme. make that 2 crunchwraps. and can I get a side of sauce?
-<|end|>
-<|assistant|>
-Sorry, we don't serve cheeseburgers or fries. We've added two tacos, another bean burrito, and two Crunchwrap Supremes, and a Pink Lemonade. For sauces, we have several options. Would you like orange sauce, green sauce, or pink sauce?
-
-Updated Order:
-- 2x Bean Burrito
-- 2x Taco Supreme
-- 2x Crunchwrap Supreme
-- 1x Pink Lemonade
-<|end|>
-
-<|user|>
-Previous Order:
-- 1x Taco Supreme
-
-User said: can I also get  a bean burrito, and some and a water
-<|end|>
-<|assistant|>
-Absolutely! I added your taco and water. Is there anything else you'd like?
-
-Updated Order:
-- 1x Taco Supreme
-- 1x Bean Burrito
-- 1x Bottled Water
-<|end|>
-<|user|>
-
-
-Menu:
-Taco Supreme: Ground beef, lettuce, cheddar cheese, diced tomatoes, sour cream, taco shell  
-Bean Burrito: Flour tortilla, refried beans, cheddar cheese, red sauce  
-Cheesy Gordita Crunch: Flatbread, taco shell, seasoned beef, spicy ranch, lettuce, cheddar cheese  
-Crunchwrap Supreme: Flour tortilla, ground beef, nacho cheese, crunchy tostada shell, lettuce, tomato, sour cream
-Cheese Quesadilla: Flour tortilla, three-cheese blend, creamy jalapeño sauce
-Pink Lemonade: Lemonade with red dye
-Tropicana Orange Juice: 100% orange juice
-Bottled Water: Purified water
-G2 Gatorade Fruit Punch: Electrolyte drink
-Frozen Baja Blast: Frozen lime soda slush
-Strawberry Skittles Freeze: Frozen drink with Skittles flavor
-Nacho Cheese Dip: Melted cheese
-Guacamole Dip: Mashed avocado with spices
-Pico de Gallo: Chopped tomatoes, onions, cilantro, lime juice
-Avocado Ranch Sauce: Creamy ranch with avocado flavor
-Creamy Jalapeño Sauce: Spicy, creamy jalapeño blend
-Red Sauce: Mild enchilada-style sauce
-Fire Sauce Packet: Very spicy sauce
-Hot Sauce Packet: Spicy sauce
-Mild Sauce Packet: Mildly spicy sauce
-Diablo Sauce Packet: Extra spicy sauce
-Grilled Chicken Taco: Grilled chicken, lettuce, cheddar cheese, soft tortilla
-Double Decker Taco: Crunchy taco with refried beans and soft tortilla
-Loaded Nacho Taco: Seasoned beef, nacho cheese, lettuce, red tortilla strips, soft tortilla
-Spicy Potato Soft Taco: Seasoned potatoes, lettuce, cheddar cheese, chipotle sauce, soft tortilla
-Triple Layer Nachos: Chips, refried beans, red sauce, nacho cheese
-Beefy 5-Layer Burrito: Ground beef, nacho cheese, cheddar cheese, refried beans, sour cream, flour tortilla
-XXL Grilled Stuft Burrito: Ground beef, rice, beans, guacamole, pico de gallo, cheddar cheese, sour cream
-
-Now update the order based on the user request below."""
-        
         init_time = (time.time() - start_init) * 1000
         print(f"✅ Combined STT → LLM pipeline initialized in {init_time:.0f}ms")
     
-    def _init_stt_processor(self):
-        """Initialize STT processor with same config as test_realtime_stt.py"""
-        try:
-            import nemo.collections.asr as nemo_asr
-            from nemo.collections.asr.parts.utils.streaming_utils import CacheAwareStreamingAudioBuffer
-            from omegaconf import open_dict
-            
-            # Load model exactly like ParakeetSTTProcessor
-            model_name = "stt_en_fastconformer_hybrid_large_streaming_multi"
-            model = nemo_asr.models.ASRModel.from_pretrained(model_name=model_name)
-            
-            # Set up autocast for mixed precision
-            autocast = torch.amp.autocast(model.device.type, enabled=True)
-            
-            # Configure decoding
-            decoding_cfg = model.cfg.decoding
-            with open_dict(decoding_cfg):
-                decoding_cfg.strategy = "greedy"
-                decoding_cfg.preserve_alignments = False
-                if hasattr(model, 'joint'):
-                    decoding_cfg.fused_batch_size = -1
-                    if not (max_symbols := decoding_cfg.greedy.get("max_symbols")) or max_symbols <= 0:
-                        decoding_cfg.greedy.max_symbols = 10
-                if hasattr(model, "cur_decoder"):
-                    model.change_decoding_strategy(decoding_cfg, decoder_type=model.cur_decoder)
-                else:
-                    model.change_decoding_strategy(decoding_cfg)
-            
-            # Model setup
-            model = model.to('cpu')
-            model.eval()
-            
-            # DEVICE VERIFICATION: Log where STT model is running
-            stt_device = next(model.parameters()).device
-            print(f"🔍 STT MODEL DEVICE: {stt_device}")
-            print(f"🔍 CUDA available: {torch.cuda.is_available()}")
-            print(f"🔍 Current CUDA device: {torch.cuda.current_device() if torch.cuda.is_available() else 'N/A'}")
-            
-            # Set attention context size for low latency (80ms)
-            ATT_CONTEXT_SIZE = [70, 1]  # 80ms latency
-            model.encoder.set_default_att_context_size(ATT_CONTEXT_SIZE)
-            
-            # Create processor object with all needed attributes
-            processor = type('STTProcessor', (), {})()
-            processor.model = model
-            processor.autocast = autocast
-            processor.CacheAwareStreamingAudioBuffer = CacheAwareStreamingAudioBuffer
-            
-            # Initialize streaming state
-            batch_size = 1
-            processor.cache_last_channel, processor.cache_last_time, processor.cache_last_channel_len = \
-                processor.model.encoder.get_initial_cache_state(batch_size=batch_size)
-            processor.previous_hypotheses = None
-            processor.pred_out_stream = None
-            processor.step_num = 0
-            
-            # Audio buffering (160ms minimum for stable mel features)
-            processor.audio_buffer = []
-            processor.min_chunks = 2  # 160ms minimum (2 * 80ms chunks)
-            
-            return processor
-            
-        except Exception as e:
-            print(f"❌ Failed to initialize STT processor: {e}")
-            raise e
-    
-    
-    def downsample_audio(self, audio_chunk):
-        """Downsample from 24kHz to 16kHz for NeMo"""
-        target_samples = int(len(audio_chunk) * 16000 / 24000)
-        indices = np.linspace(0, len(audio_chunk) - 1, target_samples).astype(int)
-        return audio_chunk[indices]
-    
     async def process_audio_chunk(self, audio_chunk):
-        """Process 80ms chunks - buffer minimally to get valid mel features, then send to LLM"""
+        """Process 80ms chunks - delegate to STT processor and handle LLM integration"""
         try:
-            # Downsample to 16kHz for NeMo
-            audio_16k = self.downsample_audio(audio_chunk)
-            
-            # Add to buffer
-            self.stt_processor.audio_buffer.extend(audio_16k)
-            
-            # Process when we have 2 chunks (160ms) for stable mel features
-            chunk_samples = len(audio_16k)
-            min_samples = chunk_samples * self.stt_processor.min_chunks  # 160ms worth
-            
-            if len(self.stt_processor.audio_buffer) < min_samples:
-                # Need more chunks for stable processing
-                return
-            
-            # Take exactly 2 chunks worth of audio
-            audio_to_process = np.array(self.stt_processor.audio_buffer[:min_samples])
-            # Remove the processed audio, keep remainder
-            self.stt_processor.audio_buffer = self.stt_processor.audio_buffer[chunk_samples:]  # Remove 1 chunk, keep overlap
-            
-            # Apply preprocessing to match NeMo's expected format  
-            audio_tensor = torch.tensor(audio_to_process, dtype=torch.float32).unsqueeze(0)  # (1, time)
-            audio_length = torch.tensor([len(audio_to_process)], dtype=torch.long)
-            
-            # Move tensors to the same device as the model (GPU)
-            device = next(self.stt_processor.model.parameters()).device
-            audio_tensor = audio_tensor.to(device)
-            audio_length = audio_length.to(device)
-            
-            # Use model's preprocessor to get features
-            with torch.no_grad():
-                processed_signal, processed_signal_length = self.stt_processor.model.preprocessor(
-                    input_signal=audio_tensor,
-                    length=audio_length
-                )
-            
-            # Check if we got valid features
-            if processed_signal.numel() == 0 or processed_signal_length.item() == 0:
-                return
-            
-            # Process with streaming model
-            start_time = time.time()
-            
-            with torch.inference_mode():
-                with self.stt_processor.autocast:
-                    with torch.no_grad():
-                        (
-                            self.stt_processor.pred_out_stream,
-                            transcribed_texts,
-                            self.stt_processor.cache_last_channel,
-                            self.stt_processor.cache_last_time,
-                            self.stt_processor.cache_last_channel_len,
-                            self.stt_processor.previous_hypotheses,
-                        ) = self.stt_processor.model.conformer_stream_step(
-                            processed_signal=processed_signal,
-                            processed_signal_length=processed_signal_length,
-                            cache_last_channel=self.stt_processor.cache_last_channel,
-                            cache_last_time=self.stt_processor.cache_last_time,
-                            cache_last_channel_len=self.stt_processor.cache_last_channel_len,
-                            keep_all_outputs=True,
-                            previous_hypotheses=self.stt_processor.previous_hypotheses,
-                            previous_pred_out=self.stt_processor.pred_out_stream,
-                            drop_extra_pre_encoded=0 if self.stt_processor.step_num == 0 else self.stt_processor.model.encoder.streaming_cfg.drop_extra_pre_encoded,
-                            return_transcription=True,
-                        )
-            
-            process_time = (time.time() - start_time) * 1000
-            
-            # Extract transcription
-            if transcribed_texts and len(transcribed_texts) > 0:
-                if hasattr(transcribed_texts[0], 'text'):
-                    current_text = transcribed_texts[0].text
-                else:
-                    current_text = str(transcribed_texts[0])
-            else:
-                current_text = ""
+            # Get transcription from STT processor
+            current_text = await self.stt_processor.process_audio_chunk(audio_chunk)
             
             # Handle STT output and LLM pipeline
             if current_text.strip():
-                print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🎤 [{self.stt_processor.step_num:3d}] {process_time:3.0f}ms: '{current_text}'")
-                
                 # Only process if this is actually NEW text
                 if current_text.strip() != self.last_unique_text:
                     print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] FOUND NEW TEXT: '{current_text.strip()}' (was: '{self.last_unique_text}')")
@@ -320,27 +90,20 @@ Now update the order based on the user request below."""
                 else:
                     # Same text as before, don't cancel LLM
                     print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] TEXT UNCHANGED: '{current_text.strip()}' == '{self.last_unique_text}'")
-                
-            elif self.stt_processor.step_num % 10 == 0:  # Show progress every 10 processed chunks 
-                print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🔄 [{self.stt_processor.step_num:3d}] Processing...")
-            
-            self.stt_processor.step_num += 1
             
         except Exception as e:
-            print(f"❌ Error processing chunk {self.stt_processor.step_num}: {e}")
+            print(f"❌ Error processing audio chunk: {e}")
     
     async def _llm_processing(self, current_llm_cancellation, text_to_process: str):
         """Process text with LLM immediately"""
         try:
-            llm_prompt = f"{self.test_input}\n\nPrevious Order:\n- (empty)\n\nUser said: {text_to_process}\n\n<|end|>\n<|assistant|>"
-            
             print(f"\n[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🧠 Sending to LLM: '{text_to_process}'")
             
-            # Generate streaming response using LLMReasoner
+            # Generate streaming response using simplified LLMReasoner call
             response_start = time.time()
             
             full_response = ""
-            async for token in self.llm_reasoner.generate_response_stream(llm_prompt, current_llm_cancellation):
+            async for token in self.llm_reasoner.generate_response_stream(text_to_process, current_llm_cancellation):
                 full_response += token
                 # Print streaming output in real-time
                 print(token, end='', flush=True)
@@ -348,11 +111,6 @@ Now update the order based on the user request below."""
             response_time = (time.time() - response_start) * 1000
             print(f"\n✅ LLM response ({response_time:.0f}ms): '{full_response.strip()}'")
             
-            
-            # Clear accumulated text after processing
-            self.accumulated_text = ""
-            
-       
             # Clear accumulated text after processing
             self.accumulated_text = ""
             
@@ -361,7 +119,7 @@ Now update the order based on the user request below."""
             raise
         except Exception as e:
             print(f"❌ Error in LLM processing: {e}")
-    
+
     async def _mock_llm_stream(self, text_to_process: str):
         """Mock LLM streaming to test if concurrency issues are llama-cpp specific"""
         mock_response = f"I understand you said '{text_to_process}'. This is a mock response to test concurrent processing."
