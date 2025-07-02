@@ -20,12 +20,15 @@ from processors.llm import LLMReasoner
 class LLMProcess(multiprocessing.Process):
     """Process that handles LLM text processing and response generation"""
     
-    def __init__(self, text_queue, tts_text_queue, timestamp_llm_start, timestamp_llm_complete):
+    def __init__(self, text_queue, tts_text_queue, timestamp_llm_start, timestamp_llm_complete, 
+                 llm_to_tts_time, llm_total_time):
         super().__init__()
         self.text_queue = text_queue
         self.tts_text_queue = tts_text_queue  # Queue to send complete responses to TTS
         self.timestamp_llm_start = timestamp_llm_start
         self.timestamp_llm_complete = timestamp_llm_complete
+        self.llm_to_tts_time = llm_to_tts_time      # Time to send to TTS
+        self.llm_total_time = llm_total_time        # Total processing time
         self.should_cancel = False  # Simple flag for cancellation
         
     def run(self):
@@ -93,32 +96,55 @@ class LLMProcess(multiprocessing.Process):
                 print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🔄 TEXT UNCHANGED: '{current_text}'")
     
     def _stream_response(self, llm_reasoner, text):
-        """Stream LLM response to console AND accumulate for TTS"""
+        """Stream LLM response to console AND send partial response to TTS early"""
         # Record timestamp when LLM starts processing
         self.timestamp_llm_start.value = time.time()
         
         print(f"\n[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🧠 Processing: '{text}'")
         print("Response: ", end='', flush=True)
         
-        # Accumulate complete response for TTS
-        complete_response = ""
-        
-        # Stream response directly to console
-        for token in llm_reasoner.generate_response_stream(text, None):
-            if self.should_cancel:
-                print(f"\n🚫 Cancelled")
-                break
-            print(token, end='', flush=True)
-            complete_response += token
-        
-        # Send complete response to TTS if not cancelled and TTS queue exists
-        if not self.should_cancel and self.tts_text_queue is not None and complete_response.strip():
-            # Record timestamp when LLM completes and sends to TTS
-            self.timestamp_llm_complete.value = time.time()
-            
-            print(f"\n🎵 Sending complete response to TTS: '{complete_response[:50]}{'...' if len(complete_response) > 50 else ''}'")
-            self.tts_text_queue.put(complete_response.strip())
+        # Parse tokens and handle early TTS sending
+        complete_response, tts_sent = self._parse_and_stream_tokens(llm_reasoner, text)
         
         # Print completion status
         if not self.should_cancel:
             print(f"\n✅ LLM Complete")
+    
+    def _parse_and_stream_tokens(self, llm_reasoner, text):
+        """Parse streaming tokens and send partial response to TTS when 'Updated Order:' is detected"""
+        tts_response = ""
+        console_response = ""
+        tts_sent = False
+        llm_start_time = time.time()  # Record start time
+        
+        for token in llm_reasoner.generate_response_stream(text, None):
+            if self.should_cancel:
+                break
+                
+            # Always add to console output
+            console_response += token
+            print(token, end='', flush=True)
+            
+            # Accumulate for TTS until we find the marker
+            if not tts_sent:
+                tts_response += token
+                
+                # Check for "Updated Order:" marker
+                if "Updated Order:" in tts_response:
+                    # Calculate and store LLM time-to-TTS
+                    llm_to_tts_time = (time.time() - llm_start_time) * 1000
+                    self.llm_to_tts_time.value = llm_to_tts_time
+                    
+                    # Extract text before marker and send to TTS
+                    tts_text = tts_response.split("Updated Order:")[0].strip()
+                    if tts_text and self.tts_text_queue is not None:
+                        self.timestamp_llm_complete.value = time.time()  # Early completion timestamp
+                        self.tts_text_queue.put(tts_text)
+                        print(f"\n🎵 Early TTS sent ({llm_to_tts_time:.1f}ms): '{tts_text[:50]}{'...' if len(tts_text) > 50 else ''}'")
+                    tts_sent = True
+        
+        # Calculate total LLM processing time
+        llm_total_time = (time.time() - llm_start_time) * 1000
+        self.llm_total_time.value = llm_total_time
+        
+        return console_response, tts_sent

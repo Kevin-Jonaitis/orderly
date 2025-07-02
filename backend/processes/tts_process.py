@@ -15,13 +15,15 @@ class TTSProcess(Process):
     Runs in a separate process to avoid blocking the LLM.
     """
     
-    def __init__(self, tts_text_queue, stt_process_time, timestamp_llm_start, 
-                 timestamp_llm_complete, timestamp_tts_start, timestamp_first_audio):
+    def __init__(self, tts_text_queue, stt_process_time, llm_to_tts_time, llm_total_time,
+                 timestamp_llm_start, timestamp_llm_complete, timestamp_tts_start, timestamp_first_audio):
         super().__init__(name="TTSProcess")
         self.tts_text_queue = tts_text_queue
         self.tts = None
-        # All timestamps for latency tracking
-        self.stt_process_time = stt_process_time  # Processing time in ms
+        # All timing data for latency tracking
+        self.stt_process_time = stt_process_time    # STT processing time in ms
+        self.llm_to_tts_time = llm_to_tts_time      # LLM time-to-TTS in ms
+        self.llm_total_time = llm_total_time        # Total LLM time in ms
         self.timestamp_llm_start = timestamp_llm_start
         self.timestamp_llm_complete = timestamp_llm_complete
         self.timestamp_tts_start = timestamp_tts_start
@@ -71,9 +73,9 @@ class TTSProcess(Process):
             
             print(f"🎤 TTS received text: '{text[:50]}{'...' if len(text) > 50 else ''}'")
             
-            # Generate TTS audio (identical to test_tts.py logic)
+            # Generate TTS audio (text is already stripped from STT/LLM)
             first_chunk = True
-            for result in self.tts.tts_streaming(text.strip(), "tara", save_file=None):
+            for result in self.tts.tts_streaming(text, "tara", save_file=None):
                 sample_rate, audio_array, chunk_count = result
                 
                 # Record timestamp for first audio chunk
@@ -98,22 +100,26 @@ class TTSProcess(Process):
     
     def _display_pipeline_latency(self):
         """Display pipeline latency breakdown VERY CLEARLY AND LOUDLY"""
-        # Get all timestamps and processing time
-        stt_processing = self.stt_process_time.value  # Already in ms
-        llm_start = self.timestamp_llm_start.value
-        llm_complete = self.timestamp_llm_complete.value
+        # Get all timing data
+        stt_processing = self.stt_process_time.value        # STT processing time in ms
+        llm_to_tts_time = self.llm_to_tts_time.value        # LLM time-to-TTS in ms
+        llm_total_time = self.llm_total_time.value          # Total LLM processing time in ms
         tts_start = self.timestamp_tts_start.value
         first_audio = self.timestamp_first_audio.value
         
-        # Calculate latencies in milliseconds
-        llm_processing = (llm_complete - llm_start) * 1000
+        # Calculate TTS time-to-first-audio
         tts_time_to_first_audio = (first_audio - tts_start) * 1000
-        total_pipeline_time = stt_processing + llm_processing + tts_time_to_first_audio
+        
+        # Calculate pipeline times
+        user_perceived_latency = stt_processing + llm_to_tts_time + tts_time_to_first_audio
+        total_with_complete_llm = stt_processing + llm_total_time + tts_time_to_first_audio
         
         # Display results VERY CLEARLY AND LOUDLY
         print("\n🚨🚨🚨 PIPELINE LATENCY BREAKDOWN 🚨🚨🚨")
         print(f"📊 STT Processing: {stt_processing:.1f}ms")
-        print(f"🧠 LLM Processing: {llm_processing:.1f}ms")
+        print(f"🧠 LLM Time-to-TTS: {llm_to_tts_time:.1f}ms")
+        print(f"🧠 LLM Total Processing: {llm_total_time:.1f}ms")
         print(f"🎵 TTS Time-to-First-Audio: {tts_time_to_first_audio:.1f}ms")
-        print(f"⚡ TOTAL PIPELINE TIME: {total_pipeline_time:.1f}ms")
+        print(f"⚡ USER PERCEIVED LATENCY: {user_perceived_latency:.1f}ms")
+        print(f"📈 TOTAL WITH COMPLETE LLM: {total_with_complete_llm:.1f}ms")
         print("🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨\n")

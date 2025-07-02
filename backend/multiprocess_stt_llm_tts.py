@@ -30,7 +30,9 @@ def main():
     tts_text_queue = multiprocessing.Queue(maxsize=10)  # LLM → TTS
     
     # Create shared timestamps for latency tracking
-    stt_process_time = multiprocessing.Value('d', 0.0)  # STT processing time in ms
+    stt_process_time = multiprocessing.Value('d', 0.0)     # STT processing time in ms
+    llm_to_tts_time = multiprocessing.Value('d', 0.0)      # LLM time-to-TTS in ms
+    llm_total_time = multiprocessing.Value('d', 0.0)       # Total LLM processing time in ms
     timestamp_llm_start = multiprocessing.Value('d', 0.0)
     timestamp_llm_complete = multiprocessing.Value('d', 0.0)
     timestamp_tts_start = multiprocessing.Value('d', 0.0)
@@ -38,9 +40,10 @@ def main():
     
     # Start processes
     stt_process = STTAudioProcess(text_queue, stt_process_time)
-    llm_process = LLMProcess(text_queue, tts_text_queue, timestamp_llm_start, timestamp_llm_complete)
-    tts_process = TTSProcess(tts_text_queue, stt_process_time, timestamp_llm_start, 
-                            timestamp_llm_complete, timestamp_tts_start, timestamp_first_audio)
+    llm_process = LLMProcess(text_queue, tts_text_queue, timestamp_llm_start, timestamp_llm_complete, 
+                            llm_to_tts_time, llm_total_time)
+    tts_process = TTSProcess(tts_text_queue, stt_process_time, llm_to_tts_time, llm_total_time,
+                            timestamp_llm_start, timestamp_llm_complete, timestamp_tts_start, timestamp_first_audio)
     
     try:
         stt_process.start()

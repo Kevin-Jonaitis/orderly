@@ -85,12 +85,15 @@ class STTAudioProcess(multiprocessing.Process):
             result = await stt_processor.process_audio_chunk(audio_chunk)
             text, process_time = result
             
-            if text.strip():
+            # Strip text once here
+            text = text.strip()
+            
+            if text:
                 # Store the processing time for latency tracking
                 self.stt_process_time.value = process_time
                 
-                # Send text to LLM process - crash if queue full
+                # Send already-stripped text to LLM process - crash if queue full
                 try:
-                    self.text_queue.put(text.strip(), block=False)
+                    self.text_queue.put(text, block=False)
                 except Exception as e:
                     print(f"❌ Failed to send text to LLM process: {e}")
