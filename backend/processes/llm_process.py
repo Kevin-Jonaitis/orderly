@@ -21,7 +21,7 @@ class LLMProcess(multiprocessing.Process):
     """Process that handles LLM text processing and response generation"""
     
     def __init__(self, text_queue, tts_text_queue, timestamp_llm_start, timestamp_llm_complete, 
-                 llm_to_tts_time, llm_total_time):
+                 llm_to_tts_time, llm_total_time, llm_queue_wait_time):
         super().__init__()
         self.text_queue = text_queue
         self.tts_text_queue = tts_text_queue  # Queue to send complete responses to TTS
@@ -29,6 +29,7 @@ class LLMProcess(multiprocessing.Process):
         self.timestamp_llm_complete = timestamp_llm_complete
         self.llm_to_tts_time = llm_to_tts_time      # Time to send to TTS
         self.llm_total_time = llm_total_time        # Total processing time
+        self.llm_queue_wait_time = llm_queue_wait_time  # Queue waiting time
         self.should_cancel = False  # Simple flag for cancellation
         
     def run(self):
@@ -44,6 +45,9 @@ class LLMProcess(multiprocessing.Process):
     
     def _drain_queue(self):
         """Drain the entire queue and return the latest text"""
+        # Time the queue operation
+        queue_start_time = time.time()
+        
         # Block for the first item
         latest_text = self.text_queue.get(block=True)
         
@@ -53,6 +57,13 @@ class LLMProcess(multiprocessing.Process):
                 latest_text = self.text_queue.get_nowait()
             except queue.Empty:
                 break
+        
+        # Calculate and store queue wait time
+        queue_wait_time = (time.time() - queue_start_time) * 1000
+        self.llm_queue_wait_time.value = queue_wait_time
+        
+        # Log queue timing for debugging
+        print(f"📊 LLM Queue Wait: {queue_wait_time:.1f}ms")
         
         return latest_text
     
