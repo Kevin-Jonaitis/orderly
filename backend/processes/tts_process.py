@@ -23,6 +23,7 @@ class TTSProcess(Process):
         self.tts = None
         self.first_audio_chunk_timestamp = first_audio_chunk_timestamp
         self.debug_mode = True  # Set to False to use real TTS generation
+        self.use_blocking_audio = False  # Set to False to use callback mode
         self.prerecorded_chunks = None  # Will load during init
     
     def _load_debug_chunks(self):
@@ -50,41 +51,26 @@ class TTSProcess(Process):
         print(f"🔍 [DEBUG] Queued {len(self.prerecorded_chunks)} chunks in {duration:.1f}ms at {end_time:.3f}")
     
     def _audio_thread(self, audio_queue):
-        """Dedicated thread for audio operations to prevent GIL blocking"""
+        """Dedicated thread for audio operations - switches between blocking/callback modes"""
+        print(f"🎵 [Audio Thread] Starting audio operations (mode: {'blocking' if self.use_blocking_audio else 'callback'})...")
+        
+        if self.use_blocking_audio:
+            self._blocking_audio_loop(audio_queue)
+        else:
+            self._callback_audio_loop(audio_queue)
+    
+    def _blocking_audio_loop(self, audio_queue):
+        """Blocking write audio implementation"""
         try:
-            print("🎵 [Audio Thread] Starting audio operations...")
+            print("🎵 [Audio] Using blocking write mode")
             
-            def audio_callback(outdata, frames, time, status):
-                """Non-blocking audio callback - called by audio system when it needs data"""
-                if not self.audio_active:
-                    outdata.fill(0)
-                    return
-                
-                try:
-                    audio_chunk = audio_queue.get_nowait()
-                    
-                    # Record first playback timing
-                    if self.first_playback:
-                        timestamp_audio_playback_start = time_module.time()
-                        self.timestamp_audio_playback_start = timestamp_audio_playback_start
-                        print(f"🔊 [Audio] PLAYBACK START: {timestamp_audio_playback_start:.3f}")
-                        self.first_playback = False
-                    
-                    # Output audio
-                    outdata[:, 0] = audio_chunk
-                    
-                except queue.Empty:
-                    # No audio ready - fill with silence
-                    outdata.fill(0)
-            
-            # Create OutputStream in the audio thread
+            # Create OutputStream without callback
             self.audio_stream = sd.OutputStream(
-                callback=audio_callback,
                 samplerate=24000, 
                 channels=1, 
                 dtype='float32',
                 blocksize=2048,  # Match TTS chunk size for efficiency
-                latency=0.002   # 2ms latency
+                latency=0.001   # Minimal latency
             )
             
             print(f"🔍 [Audio] OutputStream configuration:")
@@ -97,15 +83,94 @@ class TTSProcess(Process):
             self.audio_stream.start()
             print("🎵 [Audio] Stream started and ready")
             
-            # Keep audio thread alive (daemon thread will be killed on process exit)
-            try:
-                while True:
-                    time_module.sleep(1)
-            except:
-                pass
+            # Simple blocking write loop
+            while True:
+                # Time the queue wait
+                queue_start = time_module.time()
+                audio_chunk = audio_queue.get()  # Block until audio available
+                queue_end = time_module.time()
+                queue_wait_ms = (queue_end - queue_start) * 1000
+                print(f"🔍 Queue wait: {queue_wait_ms:.1f}ms")
+                
+                # Record first write timing
+                if self.first_playback:
+                    print(f"🔊 FIRST WRITE: {queue_end:.3f}")
+                    self.first_playback = False
+                
+                # Always flatten to ensure correct shape
+                audio_chunk = audio_chunk.flatten()
+                
+                # Time the audio write
+                write_start = time_module.time()
+                self.audio_stream.write(audio_chunk)
+                write_end = time_module.time()
+                write_duration_ms = (write_end - write_start) * 1000
+                print(f"🔍 Write duration: {write_duration_ms:.1f}ms")
             
         except Exception as e:
-            print(f"❌ [Audio] Error in audio thread: {e}")
+            print(f"❌ [Audio] Error in blocking audio: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _callback_audio_loop(self, audio_queue):
+        """Callback audio implementation"""
+        try:
+            print("🎵 [Audio] Using callback mode")
+            
+            def audio_callback(outdata, frames, time, status):
+                """Audio callback - called by audio system when it needs data"""
+                if not self.audio_active:
+                    outdata.fill(0)
+                    return
+                
+                try:
+                    # Time the queue operation
+                    queue_start = time_module.time()
+                    audio_chunk = audio_queue.get()
+                    queue_end = time_module.time()
+                    queue_wait_ms = (queue_end - queue_start) * 1000
+                    print(f"🔍 Callback queue wait: {queue_wait_ms:.1f}ms")
+                    
+                    # Record first playback timing
+                    if self.first_playback:
+                        print(f"🔊 FIRST CALLBACK: {queue_end:.3f}")
+                        self.first_playback = False
+                    
+                    # Flatten and assign to output
+                    audio_chunk = audio_chunk.flatten()
+                    outdata[:, 0] = audio_chunk
+                    
+                except queue.Empty:
+                    # No audio ready - fill with silence
+                    outdata.fill(0)
+                print("OUTDATA: ", outdata)
+            
+            # Create OutputStream with callback
+            self.audio_stream = sd.OutputStream(
+                callback=audio_callback,
+                samplerate=24000, 
+                channels=1, 
+                dtype='float32',
+                blocksize=2048,  # Match TTS chunk size for efficiency
+                latency=0.001   # Minimal latency
+            )
+            
+            print(f"🔍 [Audio] OutputStream configuration:")
+            print(f"   Samplerate: {self.audio_stream.samplerate}")
+            print(f"   Blocksize: {self.audio_stream.blocksize}")
+            print(f"   Latency: {self.audio_stream.latency}")
+            print(f"   Device: {self.audio_stream.device}")
+            
+            # Start the audio stream
+            self.audio_stream.start()
+            print("🎵 [Audio] Stream started and ready")
+            
+            # Keep callback thread alive
+            while True:
+                time_module.sleep(1)
+            
+        except Exception as e:
+            print(f"❌ [Audio] Error in callback audio: {e}")
             import traceback
             traceback.print_exc()
     
