@@ -78,10 +78,7 @@ class TTSProcess(Process):
             print(f"   Blocksize: {self.audio_stream.blocksize}")
             print(f"   Latency: {self.audio_stream.latency}")
             print(f"   Device: {self.audio_stream.device}")
-            
-            # Start the audio stream
-            self.audio_stream.start()
-            print("🎵 [Audio] Stream started and ready")
+            print("🎵 [Audio] Stream created but not started")
             
             # Simple blocking write loop
             while True:
@@ -119,10 +116,8 @@ class TTSProcess(Process):
             
             def audio_callback(outdata, frames, time, status):
                 """Audio callback - called by audio system when it needs data"""
-                if not self.audio_active:
-                    outdata.fill(0)
-                    return
-                
+                if status:
+                    print("!!!!!!!!!!!!!!!!!STATUS: ", status)
                 try:
                     # Time the queue operation
                     queue_start = time_module.time()
@@ -160,10 +155,7 @@ class TTSProcess(Process):
             print(f"   Blocksize: {self.audio_stream.blocksize}")
             print(f"   Latency: {self.audio_stream.latency}")
             print(f"   Device: {self.audio_stream.device}")
-            
-            # Start the audio stream
-            self.audio_stream.start()
-            print("🎵 [Audio] Stream started and ready")
+            print("🎵 [Audio] Stream created but not started")
             
             # Keep callback thread alive
             while True:
@@ -253,6 +245,10 @@ class TTSProcess(Process):
                     # Process pre-recorded chunks
                     self._process_debug_chunks(audio_queue)
                     
+                    # Start audio stream after chunks are queued
+                    self.audio_stream.start()
+                    print("🎵 [Audio] Stream started after chunks queued")
+                    
                 else:
                     # Production path: real TTS generation
                     first_chunk = True
@@ -280,6 +276,10 @@ class TTSProcess(Process):
                             
                             # Signal that audio is ready
                             self.audio_active = True
+                            
+                            # Start audio stream after first chunk is ready
+                            self.audio_stream.start()
+                            print("🎵 [Audio] Stream started after first chunk ready")
                         
                         # Split into 512-sample blocks
                         chunk_size = 512

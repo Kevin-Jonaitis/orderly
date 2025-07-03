@@ -32,23 +32,6 @@ def generate_beep(frequency=1000, duration=0.1, sample_rate=24000):
     t = np.linspace(0, duration, int(sample_rate * duration), False)
     return (0.3 * np.sin(2 * np.pi * frequency * t)).astype(np.float32)
 
-# def test_play_latency():
-#     """Test basic sd.play() latency"""
-#     print("\n📊 TEST 1: Basic sd.play() latency")
-#     print("=" * 50)
-    
-#     beep = generate_beep()
-    
-#     print("Press Enter, then immediately note when you hear the beep:")
-#     input()
-    
-#     start_time = time.time()
-#     print(f"🎵 PLAY CALLED: {start_time:.3f}")
-#     sd.play(beep, samplerate=24000)
-#     sd.wait()
-    
-#     print("How long after PLAY CALLED did you hear it?")
-
 def test_callback_latency():
     """Test callback-based streaming (like your TTS)"""
     print("\n📊 TEST 3: Callback-based streaming (TTS-style)")
@@ -87,7 +70,7 @@ def test_callback_latency():
         print("THE array IS: ", outdata)
 
     configs = [
-        {'blocksize': 4, 'latency': 0.001},
+        {'blocksize': 2048, 'latency': 0.001},
         # {'blocksize': 128, 'latency': 0.001},
         # {'blocksize': 512, 'latency': 0.005},
         # {'blocksize': 0, 'latency': 'low'},
