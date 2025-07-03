@@ -20,16 +20,13 @@ from processors.llm import LLMReasoner
 class LLMProcess(multiprocessing.Process):
     """Process that handles LLM text processing and response generation"""
     
-    def __init__(self, text_queue, tts_text_queue, timestamp_llm_start, timestamp_llm_complete, 
-                 llm_to_tts_time, llm_total_time, llm_queue_wait_time):
+    def __init__(self, text_queue, tts_text_queue, llm_start_timestamp, llm_send_to_tts_timestamp, llm_complete_timestamp):
         super().__init__()
         self.text_queue = text_queue
         self.tts_text_queue = tts_text_queue  # Queue to send complete responses to TTS
-        self.timestamp_llm_start = timestamp_llm_start
-        self.timestamp_llm_complete = timestamp_llm_complete
-        self.llm_to_tts_time = llm_to_tts_time      # Time to send to TTS
-        self.llm_total_time = llm_total_time        # Total processing time
-        self.llm_queue_wait_time = llm_queue_wait_time  # Queue waiting time
+        self.llm_start_timestamp = llm_start_timestamp
+        self.llm_send_to_tts_timestamp = llm_send_to_tts_timestamp
+        self.llm_complete_timestamp = llm_complete_timestamp
         self.should_cancel = False  # Simple flag for cancellation
         
     def run(self):
@@ -58,12 +55,6 @@ class LLMProcess(multiprocessing.Process):
             except queue.Empty:
                 break
         
-        # Calculate and store queue wait time
-        queue_wait_time = (time.time() - queue_start_time) * 1000
-        self.llm_queue_wait_time.value = queue_wait_time
-        
-        # Log queue timing for debugging
-        print(f"📊 LLM Queue Wait: {queue_wait_time:.1f}ms")
         
         return latest_text
     
@@ -109,7 +100,7 @@ class LLMProcess(multiprocessing.Process):
     def _stream_response(self, llm_reasoner, text):
         """Stream LLM response to console AND send partial response to TTS early"""
         # Record timestamp when LLM starts processing
-        self.timestamp_llm_start.value = time.time()
+        self.llm_start_timestamp.value = time.time()
         
         print(f"\n[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🧠 Processing: '{text}'")
         print("Response: ", end='', flush=True)
@@ -142,20 +133,17 @@ class LLMProcess(multiprocessing.Process):
                 
                 # Check for "Updated Order:" marker
                 if "Updated Order:" in tts_response:
-                    # Calculate and store LLM time-to-TTS
-                    llm_to_tts_time = (time.time() - llm_start_time) * 1000
-                    self.llm_to_tts_time.value = llm_to_tts_time
+                    # Set timestamp when sending to TTS
+                    self.llm_send_to_tts_timestamp.value = time.time()
                     
                     # Extract text before marker and send to TTS
                     tts_text = tts_response.split("Updated Order:")[0].strip()
                     if tts_text and self.tts_text_queue is not None:
-                        self.timestamp_llm_complete.value = time.time()  # Early completion timestamp
                         self.tts_text_queue.put(tts_text)
-                        print(f"\n🎵 Early TTS sent ({llm_to_tts_time:.1f}ms): '{tts_text[:50]}{'...' if len(tts_text) > 50 else ''}'")
+                        print(f"\n🎵 Early TTS sent: '{tts_text[:50]}{'...' if len(tts_text) > 50 else ''}'")
                     tts_sent = True
         
-        # Calculate total LLM processing time
-        llm_total_time = (time.time() - llm_start_time) * 1000
-        self.llm_total_time.value = llm_total_time
+        # Set completion timestamp
+        self.llm_complete_timestamp.value = time.time()
         
         return console_response, tts_sent

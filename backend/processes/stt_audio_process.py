@@ -24,15 +24,10 @@ CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION_MS / 1000)  # 1920 samples at 24kH
 class STTAudioProcess(multiprocessing.Process):
     """Process that handles audio capture and STT processing"""
     
-    def __init__(self, text_queue, stt_process_time, stt_total_chunk_time, 
-                 audio_capture_delay, last_word_processing_time, last_text_change_time):
+    def __init__(self, text_queue, last_text_change_timestamp):
         super().__init__()
         self.text_queue = text_queue
-        self.stt_process_time = stt_process_time              # STT internal processing time
-        self.stt_total_chunk_time = stt_total_chunk_time      # Complete function time
-        self.audio_capture_delay = audio_capture_delay        # Audio capture to processing delay
-        self.last_word_processing_time = last_word_processing_time  # Frame-to-text time
-        self.last_text_change_time = last_text_change_time    # When STT text last changed
+        self.last_text_change_timestamp = last_text_change_timestamp
         self.last_text = ""  # Track previous text for comparison
         
     def run(self):
@@ -89,14 +84,9 @@ class STTAudioProcess(multiprocessing.Process):
             audio_chunk, capture_time = audio_queue.get(block=True)
             processing_start = time.time()
             
-            # Calculate audio capture to processing delay
-            audio_to_processing_delay = (processing_start - capture_time) * 1000
-            self.audio_capture_delay.value = audio_to_processing_delay
-            
             # Time the entire process_audio_chunk function
             chunk_start_time = time.time()
             result = await stt_processor.process_audio_chunk(audio_chunk)
-            chunk_total_time = (time.time() - chunk_start_time) * 1000
             
             text, internal_process_time = result
             
@@ -107,22 +97,10 @@ class STTAudioProcess(multiprocessing.Process):
                 # Check if text has changed from previous output
                 if text != self.last_text:
                     # Update the last text change timestamp
-                    self.last_text_change_time.value = time.time()
+                    self.last_text_change_timestamp.value = time.time()
                     self.last_text = text
                 
-                # Calculate complete audio frame → text processing time
-                # From original audio capture timestamp to text completion
-                frame_to_text_time = (time.time() - capture_time) * 1000
-                
-                # Store all timing measurements
-                self.stt_process_time.value = internal_process_time      # Internal model processing
-                self.stt_total_chunk_time.value = chunk_total_time      # Complete function time
-                self.last_word_processing_time.value = frame_to_text_time  # Frame→text time
-                
-                # Enhanced logging with frame-to-text timing
-                print(f"📊 STT Timing - Frame→Text: {frame_to_text_time:.1f}ms, "
-                      f"Capture→Process: {audio_to_processing_delay:.1f}ms, "
-                      f"Internal: {internal_process_time:.1f}ms, Total: {chunk_total_time:.1f}ms")
+                print(f"📝 STT: '{text}'")
                 
                 # Send already-stripped text to LLM process - crash if queue full
                 try:
