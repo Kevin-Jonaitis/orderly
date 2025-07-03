@@ -1,33 +1,23 @@
-from snac import SNAC
 import numpy as np
 import torch
 import asyncio
 import threading
 import queue
 import time
-import os
-import sys
 
-# Helper to detect if running in Uvicorn's reloader (same as in inference.py)
-def is_reloader_process():
-    """Check if the current process is a uvicorn reloader"""
-    return (sys.argv[0].endswith('_continuation.py') or 
-            os.environ.get('UVICORN_STARTED') == 'true')
-
-# Set a flag to avoid repeat messages
-IS_RELOADER = is_reloader_process()
-
-# SNAC model initialization moved to OrpheusTTS processor
-# These variables are kept for compatibility with existing convert_to_audio function
-model = None
-snac_device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-
-# CUDA streams moved to OrpheusTTS processor
-cuda_stream = None
-
-def convert_to_audio(multiframe, count):
+def convert_to_audio(multiframe, count, model, device, cuda_stream=None):
     """
-    Convert tokens to audio - simplified version matching speechpipe.py
+    Convert tokens to audio using the provided SNAC model.
+    
+    Args:
+        multiframe: List of token IDs to convert
+        count: Current token count (unused but kept for compatibility)
+        model: SNAC model instance to use for decoding
+        device: Device to run the model on ('cuda', 'cpu', etc.)
+        cuda_stream: Optional CUDA stream for parallel processing
+    
+    Returns:
+        bytes: Audio data as int16 bytes, or None if invalid input
     """
     if len(multiframe) < 7:
         return None
@@ -36,12 +26,12 @@ def convert_to_audio(multiframe, count):
     frame = multiframe[:num_frames*7]
     
     # Pre-allocate tensors instead of incrementally building them
-    codes_0 = torch.zeros(num_frames, dtype=torch.int32, device=snac_device)
-    codes_1 = torch.zeros(num_frames * 2, dtype=torch.int32, device=snac_device)
-    codes_2 = torch.zeros(num_frames * 4, dtype=torch.int32, device=snac_device)
+    codes_0 = torch.zeros(num_frames, dtype=torch.int32, device=device)
+    codes_1 = torch.zeros(num_frames * 2, dtype=torch.int32, device=device)
+    codes_2 = torch.zeros(num_frames * 4, dtype=torch.int32, device=device)
     
     # Use vectorized operations where possible
-    frame_tensor = torch.tensor(frame, dtype=torch.int32, device=snac_device)
+    frame_tensor = torch.tensor(frame, dtype=torch.int32, device=device)
     
     # Direct indexing
     for j in range(num_frames):
@@ -85,7 +75,7 @@ def convert_to_audio(multiframe, count):
         audio_slice = audio_hat[:, :, 2048:4096]
         
         # Process on GPU if possible, with minimal data transfer
-        if snac_device == "cuda":
+        if device == "cuda":
             # Scale directly on GPU
             audio_int16_tensor = (audio_slice * 32767).to(torch.int16)
             # Only transfer the final result to CPU
@@ -151,10 +141,19 @@ def turn_token_into_id(token_string, index):
     except (ValueError, IndexError):
         return None
 
-async def tokens_decoder(token_gen):
-    """Simple token decoder matching original Orpheus implementation exactly"""
+async def tokens_decoder(token_gen, model, device, cuda_stream=None):
+    """
+    Async token decoder that converts tokens to audio chunks.
+    
+    Args:
+        token_gen: Async generator yielding tokens
+        model: SNAC model instance to use for decoding
+        device: Device to run the model on
+        cuda_stream: Optional CUDA stream for parallel processing
+    """
     buffer = []
     count = 0
+    last_processed_index = 0  # Track the last token index we processed
     
     async for token_sim in token_gen:       
         token = turn_token_into_id(token_sim, count)
@@ -165,52 +164,59 @@ async def tokens_decoder(token_gen):
             # Original Orpheus logic: process every 7 tokens after count > 27
             if count % 7 == 0 and count > 27:
                 buffer_to_proc = buffer[-28:]
-                audio_samples = convert_to_audio(buffer_to_proc, count)
+                audio_samples = convert_to_audio(buffer_to_proc, count, model, device, cuda_stream)
                 if audio_samples is not None:
                     yield audio_samples
+                    last_processed_index = len(buffer)  # Mark that we've processed up to here
     
-    # CRITICAL: End-of-generation handling - process all remaining frames
-    # Process remaining complete frames (ideal size)
-    if len(buffer) >= 49:
-        buffer_to_proc = buffer[-49:]
-        audio_samples = convert_to_audio(buffer_to_proc, count)
-        if audio_samples is not None:
-            yield audio_samples
-            
-    # Process any additional complete frames (minimum size)
-    elif len(buffer) >= 28:
-        buffer_to_proc = buffer[-28:]
-        audio_samples = convert_to_audio(buffer_to_proc, count)
-        if audio_samples is not None:
-            yield audio_samples
-            
-    # Final special case: even if we don't have minimum frames, try to process
-    # what we have by padding with silence tokens that won't affect the audio
-    elif len(buffer) >= 7:
-        # Pad to minimum frame requirement with copies of the final token
-        # This is more continuous than using unrelated tokens from the beginning
-        last_token = buffer[-1]
-        padding_needed = 28 - len(buffer)
+    # CRITICAL: End-of-generation handling - only process unprocessed tokens
+    # Calculate how many tokens remain unprocessed
+    remaining_tokens = len(buffer) - last_processed_index
+    
+    # Only process if we have unprocessed tokens beyond what was already handled
+    if remaining_tokens >= 7:
+        # Get only the unprocessed portion of the buffer
+        unprocessed_buffer = buffer[last_processed_index:]
         
-        # Create a padding array of copies of the last token
-        # This maintains continuity much better than circular buffering
-        padding = [last_token] * padding_needed
-        padded_buffer = buffer + padding
-        
-        print(f"Processing final partial frame: {len(buffer)} tokens + {padding_needed} repeated-token padding")
-        audio_samples = convert_to_audio(padded_buffer, count)
-        if audio_samples is not None:
-            yield audio_samples
+        # Process based on size of unprocessed portion
+        if len(unprocessed_buffer) >= 28:
+            # We have enough for a full frame
+            buffer_to_proc = unprocessed_buffer[:28]  # Take first 28 of unprocessed
+            audio_samples = convert_to_audio(buffer_to_proc, count, model, device, cuda_stream)
+            if audio_samples is not None:
+                yield audio_samples
+        else:
+            # Need to pad the unprocessed tokens
+            last_token = unprocessed_buffer[-1]
+            padding_needed = 28 - len(unprocessed_buffer)
+            padding = [last_token] * padding_needed
+            padded_buffer = unprocessed_buffer + padding
+            
+            print(f"Processing final partial frame: {len(unprocessed_buffer)} unprocessed tokens + {padding_needed} repeated-token padding")
+            audio_samples = convert_to_audio(padded_buffer, count, model, device, cuda_stream)
+            if audio_samples is not None:
+                yield audio_samples
 
 # ------------------ Synchronous Tokens Decoder Wrapper ------------------ #
-def tokens_decoder_sync(syn_token_gen):
-    """Optimized synchronous decoder with larger queue and parallel processing"""
+def tokens_decoder_sync(syn_token_gen, model, device, cuda_stream=None):
+    """
+    Synchronous wrapper for the async token decoder.
+    
+    Args:
+        syn_token_gen: Synchronous generator yielding tokens
+        model: SNAC model instance to use for decoding
+        device: Device to run the model on
+        cuda_stream: Optional CUDA stream for parallel processing
+    
+    Yields:
+        Audio chunks as bytes
+    """
     # Use a larger queue for RTX 4090 to maximize GPU utilization
-    max_queue_size = 32 if snac_device == "cuda" else 8
+    max_queue_size = 32 if device == "cuda" else 8
     audio_queue = queue.Queue(maxsize=max_queue_size)
     
     # Collect tokens in batches for higher throughput
-    batch_size = 16 if snac_device == "cuda" else 4
+    batch_size = 16 if device == "cuda" else 4
     
     # Convert the synchronous token generator into an async generator with batching
     async def async_token_gen():
@@ -233,7 +239,7 @@ def tokens_decoder_sync(syn_token_gen):
         
         try:
             # Process audio chunks from the token decoder
-            async for audio_chunk in tokens_decoder(async_token_gen()):
+            async for audio_chunk in tokens_decoder(async_token_gen(), model, device, cuda_stream):
                 if audio_chunk:  # Validate audio chunk before adding to queue
                     audio_queue.put(audio_chunk)
                     chunk_count += 1

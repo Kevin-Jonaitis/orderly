@@ -31,7 +31,7 @@ def keyboard_listener(manual_speech_end_time, manual_audio_heard_time, manual_ev
     print()
     print("⌨️  Or use this simple interface:")
     print("   Type 's' + Enter when you stop talking")
-    print("   Type 'h' + Enter when you hear audio")
+    print("   Type 'h' + Enter when you hear the FIRST SOUND (not when speech ends)")
     print("   Type 'r' + Enter to reset")
     
     try:
@@ -55,11 +55,13 @@ def keyboard_listener(manual_speech_end_time, manual_audio_heard_time, manual_ev
                         print("🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊")
                         print("🔊🔊🔊 AUDIO HEARD RECORDED!!! 🔊🔊🔊")
                         print(f"🔊🔊🔊 TIMESTAMP: {current_time:.3f} 🔊🔊🔊")
+                        print(f"🔊🔊🔊 STORED IN SHARED VAR: {manual_audio_heard_time.value:.3f} 🔊🔊🔊")
                         print("🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊🔊")
                         
                         # Calculate and display manual timing
                         manual_latency = (current_time - manual_speech_end_time.value) * 1000
                         print(f"⌨️  [MANUAL] Total perceived latency: {manual_latency:.1f}ms")
+                        print(f"⌨️  [MANUAL] Speech end was: {manual_speech_end_time.value:.3f}")
                         print("⌨️  Latency breakdown will be shown after TTS completes...")
                     else:
                         print("❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌❌")

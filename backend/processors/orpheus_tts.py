@@ -19,15 +19,13 @@ import os
 
 # Import decoder functions
 try:
-    from ..decoder import turn_token_into_id, tokens_decoder_sync
-    from ..decoder import convert_to_audio as _convert_to_audio_base
+    from ..decoder import turn_token_into_id, tokens_decoder_sync, tokens_decoder, convert_to_audio
 except ImportError:
     # Handle case when running as script
     import sys
     from pathlib import Path
     sys.path.append(str(Path(__file__).parent.parent))
-    from decoder import turn_token_into_id, tokens_decoder_sync
-    from decoder import convert_to_audio as _convert_to_audio_base
+    from decoder import turn_token_into_id, tokens_decoder_sync, tokens_decoder, convert_to_audio
 
 # Helper to detect if running in Uvicorn's reloader
 def is_reloader_process():
@@ -92,7 +90,7 @@ class OrpheusTTS:
             print("🔥 Warming up SNAC model...")
             snac_start = time.time()
             dummy_tokens = [1000, 1001, 1002, 1003, 1004, 1005, 1006] * 4  # 28 tokens
-            self._convert_to_audio(dummy_tokens, 28)  # Warmup SNAC processing
+            convert_to_audio(dummy_tokens, 28, self.snac_model, self.snac_device)  # Warmup SNAC processing
             snac_warmup_time = (time.time() - snac_start) * 1000
             print(f"🔥 SNAC warmup: {snac_warmup_time:.0f}ms")
             
@@ -100,119 +98,6 @@ class OrpheusTTS:
             print(f"🔥 Total warmup time: {total_warmup:.0f}ms (GPU-accelerated)")
             print(f"✅ OrpheusTTS initialization complete - ready for high-performance inference")
     
-    def _convert_to_audio(self, multiframe, count):
-        """Convert tokens to audio using the integrated SNAC model"""
-        # Temporarily set global variables for compatibility with existing decoder functions
-        try:
-            import backend.decoder as decoder_module
-        except ImportError:
-            import decoder as decoder_module
-            
-        original_model = decoder_module.model
-        original_device = decoder_module.snac_device
-        
-        # Set our model and device in the decoder module
-        decoder_module.model = self.snac_model
-        decoder_module.snac_device = self.snac_device
-        
-        # Call the base conversion function
-        result = _convert_to_audio_base(multiframe, count)
-        
-        # Restore original values
-        decoder_module.model = original_model
-        decoder_module.snac_device = original_device
-        
-        return result
-    
-    def _tokens_decoder_sync(self, syn_token_gen):
-        """Custom tokens decoder that uses our integrated SNAC model"""
-        import asyncio
-        import threading
-        import queue
-        
-        # Use a larger queue for RTX 4090 to maximize GPU utilization
-        max_queue_size = 32 if self.snac_device == "cuda" else 8
-        audio_queue = queue.Queue(maxsize=max_queue_size)
-        
-        # Collect tokens in batches for higher throughput
-        batch_size = 16 if self.snac_device == "cuda" else 4
-        
-        # Convert the synchronous token generator into an async generator with batching
-        async def async_token_gen():
-            token_batch = []
-            for token in syn_token_gen:
-                token_batch.append(token)
-                # Process in batches for efficiency
-                if len(token_batch) >= batch_size:
-                    for t in token_batch:
-                        yield t
-                    token_batch = []
-            # Process any remaining tokens
-            for t in token_batch:
-                yield t
-
-        async def async_producer():
-            # Start timer for performance logging
-            start_time = time.time()
-            chunk_count = 0
-            
-            try:
-                # Process audio chunks from the token decoder
-                async for audio_chunk in self._tokens_decoder(async_token_gen()):
-                    if audio_chunk:  # Validate audio chunk before adding to queue
-                        audio_queue.put(audio_chunk)
-                        chunk_count += 1
-                        
-                        # Log performance stats periodically
-                        if chunk_count % 10 == 0:
-                            elapsed = time.time() - start_time
-                            print(f"Generated {chunk_count} chunks in {elapsed:.2f}s ({chunk_count/elapsed:.2f} chunks/sec)")
-            except Exception as e:
-                print(f"Error in audio producer: {e}")
-                import traceback
-                traceback.print_exc()
-            finally:    
-                # Signal completion
-                print("Audio producer completed - finalizing all chunks")
-                audio_queue.put(None)  # Sentinel
-
-        def run_async():
-            asyncio.run(async_producer())
-
-        # Use a higher priority thread for RTX 4090 to ensure it stays fed with work
-        thread = threading.Thread(target=run_async)
-        thread.daemon = True  # Allow the thread to be terminated when the main thread exits
-        thread.start()
-
-        # Yield chunks immediately as they arrive (no buffering for true streaming)
-        while True:
-            audio = audio_queue.get()
-            if audio is None:
-                break
-            
-            # Immediate yield - no buffering or grouping
-            yield audio
-
-        thread.join()
-    
-    async def _tokens_decoder(self, token_gen):
-        """Custom async token decoder using integrated SNAC model"""
-        buffer = []
-        count = 0
-        
-        async for token_sim in token_gen:       
-            token = turn_token_into_id(token_sim, count)
-            if token is not None and token > 0:
-                buffer.append(token)
-                count += 1
-
-                # Original Orpheus logic: process every 7 tokens after count > 27
-                if count % 7 == 0 and count > 27:
-                    buffer_to_proc = buffer[-28:]
-                    audio_samples = self._convert_to_audio(buffer_to_proc, count)
-                    if audio_samples is not None:
-                        yield audio_samples
-        
     
     def _generate_tokens_stream(self, text: str, voice: str = "tara") -> Generator[str, None, None]:
         """Generate tokens using direct Orpheus model inference"""
@@ -303,7 +188,7 @@ class OrpheusTTS:
         
         decode_start = time.time()
         
-        for audio_bytes in self._tokens_decoder_sync(token_gen_with_timing()):
+        for audio_bytes in tokens_decoder_sync(token_gen_with_timing(), self.snac_model, self.snac_device):
             current_chunk_time = time.time()
             chunk_count += 1
             
