@@ -22,7 +22,32 @@ class TTSProcess(Process):
         self.tts_text_queue = tts_text_queue
         self.tts = None
         self.first_audio_chunk_timestamp = first_audio_chunk_timestamp
+        self.debug_mode = True  # Set to False to use real TTS generation
+        self.prerecorded_chunks = None  # Will load during init
     
+    def _load_debug_chunks(self):
+        """Load pre-recorded chunks for debugging"""
+        try:
+            import pickle
+            self.prerecorded_chunks = pickle.load(open('debug_chunks_1751577529.pkl', 'rb'))
+            print(f"🔍 [DEBUG] Loaded {len(self.prerecorded_chunks)} pre-recorded chunks")
+        except Exception as e:
+            print(f"❌ [DEBUG] Failed to load debug chunks: {e}")
+            self.debug_mode = False  # Fall back to real TTS
+    
+    def _process_debug_chunks(self, audio_queue):
+        """Process pre-recorded chunks - optimized for speed"""
+        start_time = time_module.time()
+        print(f"🔍 [DEBUG] Starting chunk processing at {start_time:.3f}")
+        
+        # Simple, fast queuing - no expensive operations
+        for i, audio_array in enumerate(self.prerecorded_chunks):
+            # Direct queue - no splitting since blocksize now matches chunk size (2048)
+            audio_queue.put(audio_array)
+        
+        end_time = time_module.time()
+        duration = (end_time - start_time) * 1000
+        print(f"🔍 [DEBUG] Queued {len(self.prerecorded_chunks)} chunks in {duration:.1f}ms at {end_time:.3f}")
     
     def _audio_thread(self, audio_queue):
         """Dedicated thread for audio operations to prevent GIL blocking"""
@@ -58,7 +83,7 @@ class TTSProcess(Process):
                 samplerate=24000, 
                 channels=1, 
                 dtype='float32',
-                blocksize=512,  # Fixed 512-sample blocks
+                blocksize=2048,  # Match TTS chunk size for efficiency
                 latency=0.002   # 2ms latency
             )
             
@@ -89,9 +114,14 @@ class TTSProcess(Process):
         print("🎵 Starting TTS process with complete threading...")
         
         # Initialize TTS system
-        print("🔧 Initializing OrpheusTTS...")
-        self.tts = OrpheusTTS()
-        print("✅ TTS initialization complete")
+        if not self.debug_mode:
+            print("🔧 Initializing OrpheusTTS...")
+            self.tts = OrpheusTTS()
+            print("✅ TTS initialization complete")
+        else:
+            print("🔧 Loading debug chunks...")
+            self._load_debug_chunks()
+            print("✅ Debug chunks loaded")
         
         # Set up shared resources
         audio_queue = queue.Queue(maxsize=100)
@@ -146,64 +176,71 @@ class TTSProcess(Process):
                 # Reset state for new generation
                 self.first_playback = True
                 
-                # Generate TTS audio directly in this thread
-                first_chunk = True
-                print(f"🎵 [TTS] GENERATION STARTED")
-                
-                debug_audio_chunks = []
-                
-                for result in self.tts.tts_streaming(text, "tara", save_file=None):
-                    sample_rate, audio_array, chunk_count = result
+                if self.debug_mode:
+                    # Debug path: use pre-recorded chunks (near-instantaneous)
+                    print(f"🔍 [DEBUG] Using pre-recorded chunks")
+                    self.first_audio_chunk_timestamp.value = time_module.time()
+                    print(f"🎵 [DEBUG] FIRST CHUNK READY: {self.first_audio_chunk_timestamp.value:.3f}")
                     
-                    # Collect for debug
-                    debug_audio_chunks.append(audio_array.copy())
+                    # Signal that audio is ready
+                    self.audio_active = True
                     
-                    if first_chunk:
-                        # Set the timestamp when first audio chunk is ready
-                        self.first_audio_chunk_timestamp.value = time_module.time()
-                        print(f"🎵 [TTS] FIRST CHUNK READY: {self.first_audio_chunk_timestamp.value:.3f}")
+                    # Process pre-recorded chunks
+                    self._process_debug_chunks(audio_queue)
+                    
+                else:
+                    # Production path: real TTS generation
+                    first_chunk = True
+                    print(f"🎵 [TTS] GENERATION STARTED")
+                    
+                    debug_audio_chunks = []
+                    
+                    for result in self.tts.tts_streaming(text, "tara", save_file=None):
+                        sample_rate, audio_array, chunk_count = result
                         
-                        # Analyze first chunk
-                        chunk_max = np.max(np.abs(audio_array))
-                        chunk_rms = np.sqrt(np.mean(audio_array**2))
-                        print(f"🔍 [TTS] First chunk - Max: {chunk_max:.4f}, RMS: {chunk_rms:.4f}")
+                        # Collect for debug
+                        debug_audio_chunks.append(audio_array.copy())
                         
-                        first_chunk = False
+                        if first_chunk:
+                            # Set the timestamp when first audio chunk is ready
+                            self.first_audio_chunk_timestamp.value = time_module.time()
+                            print(f"🎵 [TTS] FIRST CHUNK READY: {self.first_audio_chunk_timestamp.value:.3f}")
+                            
+                            # Analyze first chunk
+                            chunk_max = np.max(np.abs(audio_array))
+                            chunk_rms = np.sqrt(np.mean(audio_array**2))
+                            print(f"🔍 [TTS] First chunk - Max: {chunk_max:.4f}, RMS: {chunk_rms:.4f}")
+                            
+                            first_chunk = False
+                            
+                            # Signal that audio is ready
+                            self.audio_active = True
                         
-                        # Signal that audio is ready
-                        self.audio_active = True
+                        # Split into 512-sample blocks
+                        chunk_size = 512
+                        audio_flat = audio_array.flatten()
+                        
+                        # Queue blocks
+                        num_blocks = len(audio_flat) // chunk_size
+                        for i in range(num_blocks):
+                            start_idx = i * chunk_size
+                            end_idx = start_idx + chunk_size
+                            audio_block = audio_flat[start_idx:end_idx]
+                            audio_queue.put(audio_block)
+                        
+                        # Handle remaining samples
+                        remaining_samples = len(audio_flat) % chunk_size
+                        if remaining_samples > 0:
+                            remaining_audio = audio_flat[num_blocks * chunk_size:]
+                            padded_audio = np.pad(remaining_audio, (0, chunk_size - remaining_samples), mode='constant')
+                            audio_queue.put(padded_audio)
                     
-                    # Split into 512-sample blocks
-                    chunk_size = 512
-                    audio_flat = audio_array.flatten()
+                    print("🎵 [TTS] Generation complete")
                     
-                    # Queue blocks
-                    num_blocks = len(audio_flat) // chunk_size
-                    for i in range(num_blocks):
-                        start_idx = i * chunk_size
-                        end_idx = start_idx + chunk_size
-                        audio_block = audio_flat[start_idx:end_idx]
-                        audio_queue.put(audio_block)
-                    
-                    # Handle remaining samples
-                    remaining_samples = len(audio_flat) % chunk_size
-                    if remaining_samples > 0:
-                        remaining_audio = audio_flat[num_blocks * chunk_size:]
-                        padded_audio = np.pad(remaining_audio, (0, chunk_size - remaining_samples), mode='constant')
-                        audio_queue.put(padded_audio)
-                
-                print("🎵 [TTS] Generation complete")
-                
-                # Save debug audio
-                if debug_audio_chunks:
-                    # Save chunks for future replay
-                    import pickle
-                    chunk_filename = f'debug_chunks_{int(time_module.time())}.pkl'
-                    pickle.dump(debug_audio_chunks, open(chunk_filename, 'wb'))
-                    print(f"🔍 [TTS] Saved {len(debug_audio_chunks)} chunks to {chunk_filename}")
-                    
-                    # Also save full audio
-                    self._save_debug_audio(debug_audio_chunks, sample_rate)
+                    # Save debug audio
+                    if debug_audio_chunks:
+                        # Also save full audio
+                        self._save_debug_audio(debug_audio_chunks, sample_rate)
                 
                 
         except Exception as e:

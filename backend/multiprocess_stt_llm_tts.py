@@ -146,7 +146,7 @@ def main():
                 print(f"🎵 LLM Send to TTS -> First Audio chunk: {llm_to_first_audio:.1f}ms")
                 
                 audio_to_heard = (manual_audio_heard_timestamp.value - first_audio_chunk_timestamp.value) * 1000
-                print(f"🔊 Audio → Heard: {audio_to_heard:.1f}ms")
+                print(f"🔊 First Audio Chunk → Heard Audio: {audio_to_heard:.1f}ms")
                 
                 print("🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨\n")
                 
