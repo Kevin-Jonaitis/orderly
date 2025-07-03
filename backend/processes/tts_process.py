@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import time
+import time as time_module
 import threading
 import queue
 from multiprocessing import Process
@@ -42,214 +42,224 @@ class TTSProcess(Process):
         self.manual_speech_end_time = manual_speech_end_time    # When user stops talking
         self.manual_audio_heard_time = manual_audio_heard_time  # When user hears audio
     
-    def run(self):
-        """Main TTS process loop - initialize TTS and process text from queue"""
-        print("🎵 Starting TTS process...")
-        
-        # Initialize TTS system with integrated models (like test_tts.py)
-        print("🔧 Initializing OrpheusTTS in TTS process...")
-        self.tts = OrpheusTTS()
-        print("✅ TTS process initialization complete")
-        
-        # Set up audio streaming (identical to test_tts.py --stream)
-        print("🎵 Setting up real-time audio streaming...")
-        audio_queue = queue.Queue()
-        
-        def audio_callback():
-            """Stream audio chunks to speakers with low-latency configuration"""
-            with sd.OutputStream(samplerate=24000, channels=1, dtype='float32', 
-                                blocksize=64, latency='low') as stream:
-                first_playback = True
-                print(f"🔍 OutputStream info:")
-                print(f"   Actual samplerate: {stream.samplerate}")
-                print(f"   Actual blocksize: {stream.blocksize}")
-                print(f"   Actual latency: {stream.latency}")
-                print(f"   Device: {stream.device}")
+    
+    def _audio_thread(self, audio_queue):
+        """Dedicated thread for audio operations to prevent GIL blocking"""
+        try:
+            print("🎵 [Audio Thread] Starting audio operations...")
+            
+            def audio_callback(outdata, frames, time, status):
+                """Non-blocking audio callback - called by audio system when it needs data"""
+                if not self.audio_active:
+                    outdata.fill(0)
+                    return
                 
-                while True:
-                    audio_chunk = audio_queue.get()  # Block until chunk available
-                    if audio_chunk is None:  # End signal
-                        print("WE FINISHED PULLING AUDIO FROM THE QUEUE ##############################################################")
-                        break
-                    
-                    # Record timestamp when we actually start playing audio
-                    if first_playback:
-                        timestamp_audio_playback_start = time.time()
-                        # Store in a class variable we can access later
-                        self.timestamp_audio_playback_start = timestamp_audio_playback_start
-                        print(f"🔊 STREAM.WRITE() CALLED: {timestamp_audio_playback_start:.3f}")
-                        first_playback = False
-                    
-                    # Time the actual stream.write() call
-                    write_start = time.time()
-                    stream.write(audio_chunk.squeeze())
-                    write_end = time.time()
-                    write_duration = (write_end - write_start) * 1000
-                    
-                    print(f"🔊 stream.write() took {write_duration:.1f}ms")
-        
-        # Start audio streaming thread
-        audio_thread = threading.Thread(target=audio_callback)
-        audio_thread.daemon = True  # Die when main process dies
-        audio_thread.start()
-        print("🎵 Audio streaming thread started")
-        
-        # Main loop: wait for text from LLM and generate TTS
-        print("🎧 TTS process ready - waiting for text from LLM...")
-        while True:
-            # Block until we receive text from LLM process
-            text = self.tts_text_queue.get()
-            
-            # Check for shutdown signal
-            if text is None:
-                print("🛑 TTS process received shutdown signal")
-                break
-            
-            # Record timestamp when TTS receives text from LLM
-            tts_receive_time = time.time()
-            self.timestamp_tts_start.value = tts_receive_time
-            print(f"📥 TTS RECEIVED TEXT: {tts_receive_time:.3f}")
-            
-            print(f"🎤 TTS received text: '{text[:50]}{'...' if len(text) > 50 else ''}'")
-            
-            # Generate TTS audio (text is already stripped from STT/LLM)
-            first_chunk = True
-            tts_generation_start = time.time()
-            print(f"🎵 TTS GENERATION STARTED: {tts_generation_start:.3f}")
-            
-            # Debug: Collect all audio chunks for analysis
-            debug_audio_chunks = []
-            
-            for result in self.tts.tts_streaming(text, "tara", save_file=None):
-                sample_rate, audio_array, chunk_count = result
-                
-                # Debug: Collect all chunks for analysis
-                debug_audio_chunks.append(audio_array.copy())
-                
-                # Record timestamp for first audio chunk
-                if first_chunk:
-                    chunk_ready_time = time.time()
-                    self.timestamp_first_audio.value = chunk_ready_time
-                    print(f"🎵 FIRST CHUNK READY: {chunk_ready_time:.3f}")
-                    
-                    # Debug: Analyze first chunk for silence
-                    chunk_max = np.max(np.abs(audio_array))
-                    chunk_rms = np.sqrt(np.mean(audio_array**2))
-                    print(f"🔍 First chunk - Max amplitude: {chunk_max:.4f}, RMS: {chunk_rms:.4f}")
-                    
-                    # Check for leading silence in first chunk
-                    silence_threshold = 0.001
-                    non_silent_start = 0
-                    for i, sample in enumerate(audio_array.flatten()):
-                        if abs(sample) > silence_threshold:
-                            non_silent_start = i
-                            break
-                    
-                    silent_duration_ms = (non_silent_start / sample_rate) * 1000
-                    print(f"🔍 Leading silence in first chunk: {silent_duration_ms:.1f}ms ({non_silent_start} samples)")
-                    
-                    first_chunk = False
-                    
-                    # Debug: Time from TTS start to first chunk ready
-                    chunk_generation_time = (chunk_ready_time - tts_generation_start) * 1000
-                    print(f"🎵 First chunk ready after {chunk_generation_time:.1f}ms")
-                    
-                    # Time the queue operation
-                    queue_start = time.time()
-                    audio_queue.put(audio_array)
-                    queue_end = time.time()
-                    queue_time = (queue_end - queue_start) * 1000
-                    print(f"🎵 AUDIO QUEUED: {queue_end:.3f} (took {queue_time:.1f}ms)")
-                    
-                    # Only display pipeline latency breakdown if manual timing is complete
-                    if self.manual_audio_heard_time.value > 0:
-                        self._display_pipeline_latency()
-                    else:
-                        print("🎵 First audio chunk generated - waiting for manual timing...")
-                else:
-                    # Stream to speakers (subsequent chunks)
-                    audio_queue.put(audio_array)
-            
-            # Debug: Save complete audio for analysis
-            if debug_audio_chunks:
                 try:
-                    # Ensure all chunks are the same shape and properly concatenate
-                    print(f"🔍 Concatenating {len(debug_audio_chunks)} audio chunks...")
-                    for i, chunk in enumerate(debug_audio_chunks):
-                        print(f"   Chunk {i}: shape={chunk.shape}, dtype={chunk.dtype}")
+                    audio_chunk = audio_queue.get_nowait()
                     
-                    # Flatten each chunk and concatenate
-                    flattened_chunks = [chunk.flatten() for chunk in debug_audio_chunks]
-                    complete_audio = np.concatenate(flattened_chunks, axis=0)
+                    # Record first playback timing
+                    if self.first_playback:
+                        timestamp_audio_playback_start = time_module.time()
+                        self.timestamp_audio_playback_start = timestamp_audio_playback_start
+                        print(f"🔊 [Audio] PLAYBACK START: {timestamp_audio_playback_start:.3f}")
+                        self.first_playback = False
                     
-                    # Ensure it's the right shape for mono audio
-                    if len(complete_audio.shape) > 1:
-                        complete_audio = complete_audio.flatten()
+                    # Output audio
+                    outdata[:, 0] = audio_chunk
                     
-                    debug_filename = f"debug_tts_audio_{int(time.time())}.wav"
-                    print(f"🔍 Saving audio: shape={complete_audio.shape}, dtype={complete_audio.dtype}, sr={sample_rate}")
-                    
-                    # Try multiple save methods
-                    try:
-                        # Method 1: soundfile with explicit parameters
-                        sf.write(debug_filename, complete_audio, sample_rate, format='WAV', subtype='PCM_16')
-                        print(f"🔍 Complete TTS audio saved to: {debug_filename}")
-                    except Exception as sf_error:
-                        print(f"❌ soundfile failed: {sf_error}")
-                        try:
-                            # Method 2: scipy.io.wavfile as backup
-                            from scipy.io import wavfile
-                            # Convert float32 to int16 for WAV compatibility
-                            audio_int16 = (complete_audio * 32767).astype(np.int16)
-                            alt_filename = f"debug_tts_audio_scipy_{int(time.time())}.wav"
-                            wavfile.write(alt_filename, sample_rate, audio_int16)
-                            print(f"🔍 Complete TTS audio saved to: {alt_filename} (using scipy)")
-                        except Exception as scipy_error:
-                            print(f"❌ scipy.io.wavfile also failed: {scipy_error}")
-                            # Method 3: Save as raw numpy array
-                            raw_filename = f"debug_tts_audio_raw_{int(time.time())}.npy"
-                            np.save(raw_filename, complete_audio)
-                            print(f"🔍 Raw audio saved to: {raw_filename}")
-                            print(f"   To convert to WAV manually: sample_rate={sample_rate}, dtype={complete_audio.dtype}")
-                    
-                    # Analyze complete audio for silence patterns
-                    total_samples = len(complete_audio)
-                    total_duration_ms = (total_samples / sample_rate) * 1000
-                    
-                    # Find first non-silent sample in complete audio
-                    silence_threshold = 0.001
-                    first_audio_sample = 0
-                    for i, sample in enumerate(complete_audio):
-                        if abs(sample) > silence_threshold:
-                            first_audio_sample = i
-                            break
-                    
-                    leading_silence_ms = (first_audio_sample / sample_rate) * 1000
-                    print(f"🔍 COMPLETE AUDIO ANALYSIS:")
-                    print(f"   Total duration: {total_duration_ms:.1f}ms ({total_samples} samples)")
-                    print(f"   Leading silence: {leading_silence_ms:.1f}ms ({first_audio_sample} samples)")
-                    print(f"   Max amplitude: {np.max(np.abs(complete_audio)):.4f}")
-                    print(f"   RMS: {np.sqrt(np.mean(complete_audio**2)):.4f}")
-                    
-                except Exception as e:
-                    print(f"❌ Error saving/analyzing audio: {e}")
-                    # Save raw data for manual inspection
-                    np.save(f"debug_tts_raw_{int(time.time())}.npy", debug_audio_chunks)
-                    print(f"🔍 Raw audio chunks saved as .npy file for manual analysis")
+                except queue.Empty:
+                    # No audio ready - fill with silence
+                    outdata.fill(0)
             
-            # Signal end of this TTS generation
-            print("✅ TTS generation complete")
+            # Create OutputStream in the audio thread
+            self.audio_stream = sd.OutputStream(
+                callback=audio_callback,
+                samplerate=24000, 
+                channels=1, 
+                dtype='float32',
+                blocksize=512,  # Fixed 512-sample blocks
+                latency=0.002   # 2ms latency
+            )
             
-            # Check if manual timing became available during TTS generation
-            if self.manual_audio_heard_time.value > 0 and self.timestamp_first_audio.value > 0:
-                self._display_pipeline_latency()
+            print(f"🔍 [Audio] OutputStream configuration:")
+            print(f"   Samplerate: {self.audio_stream.samplerate}")
+            print(f"   Blocksize: {self.audio_stream.blocksize}")
+            print(f"   Latency: {self.audio_stream.latency}")
+            print(f"   Device: {self.audio_stream.device}")
+            
+            # Start the audio stream
+            self.audio_stream.start()
+            print("🎵 [Audio] Stream started and ready")
+            
+            # Keep audio thread alive (daemon thread will be killed on process exit)
+            try:
+                while True:
+                    time_module.sleep(1)
+            except:
+                pass
+            
+        except Exception as e:
+            print(f"❌ [Audio] Error in audio thread: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def run(self):
+        """Main TTS process - coordinate audio and TTS threads"""
+        print("🎵 Starting TTS process with complete threading...")
         
-        # Clean up audio streaming
-        print("🔧 Cleaning up TTS audio streaming...")
-        audio_queue.put(None)  # End signal
-        time.sleep(0.5)  # Let the audio finish playing
-        audio_thread.join()  # Wait for audio to finish
-        print("🛑 TTS process shutdown complete")
+        # Initialize TTS system
+        print("🔧 Initializing OrpheusTTS...")
+        self.tts = OrpheusTTS()
+        print("✅ TTS initialization complete")
+        
+        # Set up shared resources
+        audio_queue = queue.Queue(maxsize=100)
+        self.first_playback = True
+        self.audio_active = True  # Simple boolean instead of Event
+        
+        # Start audio thread
+        audio_thread = threading.Thread(
+            target=self._audio_thread,
+            args=(audio_queue,),
+            name="TTS-Audio-Thread"
+        )
+        audio_thread.daemon = True
+        audio_thread.start()
+        
+        # Wait for audio stream to be ready
+        time_module.sleep(0.1)
+        
+        # Start TTS thread
+        tts_thread = threading.Thread(
+            target=self._tts_main_thread,
+            args=(audio_queue,),
+            name="TTS-Main-Thread"
+        )
+        tts_thread.daemon = True
+        tts_thread.start()
+        
+        # Just wait for TTS thread (daemon threads auto-cleanup on exit)
+        try:
+            tts_thread.join()
+        except KeyboardInterrupt:
+            print("\n🛑 Keyboard interrupt - process will exit")
+        
+        print("🛑 TTS process complete")
+    
+    def _tts_main_thread(self, audio_queue):
+        """Dedicated thread for TTS operations - handles while loop and generation"""
+        try:
+            print("🎧 [TTS] Thread ready - waiting for text from LLM...")
+            
+            while True:
+                # Block until we receive text from LLM process
+                text = self.tts_text_queue.get()
+                
+                # Check for shutdown signal
+                if text is None:
+                    print("🛑 [TTS] Received shutdown signal")
+                    break
+                
+                # Record timestamp when TTS receives text from LLM
+                tts_receive_time = time_module.time()
+                self.timestamp_tts_start.value = tts_receive_time
+                print(f"📥 [TTS] RECEIVED TEXT: {tts_receive_time:.3f}")
+                print(f"🎤 [TTS] Text: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+                
+                # Reset state for new generation
+                self.first_playback = True
+                
+                # Generate TTS audio directly in this thread
+                first_chunk = True
+                tts_generation_start = time_module.time()
+                print(f"🎵 [TTS] GENERATION STARTED: {tts_generation_start:.3f}")
+                
+                debug_audio_chunks = []
+                
+                for result in self.tts.tts_streaming(text, "tara", save_file=None):
+                    sample_rate, audio_array, chunk_count = result
+                    
+                    # Collect for debug
+                    debug_audio_chunks.append(audio_array.copy())
+                    
+                    if first_chunk:
+                        chunk_ready_time = time_module.time()
+                        self.timestamp_first_audio.value = chunk_ready_time
+                        print(f"🎵 [TTS] FIRST CHUNK READY: {chunk_ready_time:.3f}")
+                        
+                        # Analyze first chunk
+                        chunk_max = np.max(np.abs(audio_array))
+                        chunk_rms = np.sqrt(np.mean(audio_array**2))
+                        print(f"🔍 [TTS] First chunk - Max: {chunk_max:.4f}, RMS: {chunk_rms:.4f}")
+                        
+                        first_chunk = False
+                        chunk_generation_time = (chunk_ready_time - tts_generation_start) * 1000
+                        print(f"🎵 [TTS] First chunk after {chunk_generation_time:.1f}ms")
+                        
+                        # Signal that audio is ready
+                        self.audio_active = True
+                    
+                    # Split into 512-sample blocks
+                    chunk_size = 512
+                    audio_flat = audio_array.flatten()
+                    
+                    # Queue blocks
+                    num_blocks = len(audio_flat) // chunk_size
+                    for i in range(num_blocks):
+                        start_idx = i * chunk_size
+                        end_idx = start_idx + chunk_size
+                        audio_block = audio_flat[start_idx:end_idx]
+                        audio_queue.put(audio_block)
+                    
+                    # Handle remaining samples
+                    remaining_samples = len(audio_flat) % chunk_size
+                    if remaining_samples > 0:
+                        remaining_audio = audio_flat[num_blocks * chunk_size:]
+                        padded_audio = np.pad(remaining_audio, (0, chunk_size - remaining_samples), mode='constant')
+                        audio_queue.put(padded_audio)
+                
+                print("🎵 [TTS] Generation complete")
+                
+                # Save debug audio
+                if debug_audio_chunks:
+                    # Save chunks for future replay
+                    import pickle
+                    chunk_filename = f'debug_chunks_{int(time_module.time())}.pkl'
+                    pickle.dump(debug_audio_chunks, open(chunk_filename, 'wb'))
+                    print(f"🔍 [TTS] Saved {len(debug_audio_chunks)} chunks to {chunk_filename}")
+                    
+                    # Also save full audio
+                    self._save_debug_audio(debug_audio_chunks, sample_rate)
+                
+                # Display latency if manual timing available
+                if self.manual_audio_heard_time.value > 0 and self.timestamp_first_audio.value > 0:
+                    self._display_pipeline_latency()
+                
+        except Exception as e:
+            print(f"❌ [TTS] Error in TTS thread: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _save_debug_audio(self, audio_chunks, sample_rate):
+        """Save debug audio (moved from inline)"""
+        try:
+            flattened_chunks = [chunk.flatten() for chunk in audio_chunks]
+            complete_audio = np.concatenate(flattened_chunks, axis=0)
+            
+            if len(complete_audio.shape) > 1:
+                complete_audio = complete_audio.flatten()
+            
+            debug_filename = f"debug_tts_audio_{int(time_module.time())}.wav"
+            sf.write(debug_filename, complete_audio, sample_rate, format='WAV', subtype='PCM_16')
+            print(f"🔍 Audio saved to: {debug_filename}")
+            
+            # Analyze complete audio
+            total_samples = len(complete_audio)
+            total_duration_ms = (total_samples / sample_rate) * 1000
+            print(f"🔍 Audio duration: {total_duration_ms:.1f}ms ({total_samples} samples)")
+            
+        except Exception as e:
+            print(f"❌ Error saving audio: {e}")
     
     def _display_pipeline_latency(self):
         """Display comprehensive pipeline latency breakdown with manual timing comparison"""
