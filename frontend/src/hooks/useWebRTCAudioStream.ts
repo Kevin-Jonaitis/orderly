@@ -38,7 +38,7 @@ export function useWebRTCAudioStream() {
    */
   const createPeerConnection = useCallback((): RTCPeerConnection => {
     const config: RTCConfiguration = {
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      iceServers: []
     };
 
     const peerConnection = new RTCPeerConnection(config);
@@ -144,6 +144,12 @@ export function useWebRTCAudioStream() {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       localStream.current = stream;
       
+      // Debug: log actual audio track settings
+      const audioTrack = stream.getAudioTracks()[0];
+      if (audioTrack) {
+        console.log('Actual audio track settings:', audioTrack.getSettings());
+      }
+
       console.log('Microphone access granted');
       setMessages(prev => [...prev, 'Microphone access granted']);
 

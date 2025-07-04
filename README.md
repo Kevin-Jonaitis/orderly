@@ -69,13 +69,105 @@ python3 setup_env.py
 # Download Phi-3 Mini model (required for LLM)
 mkdir -p models
 curl -L -o models/Phi-3-mini-4k-instruct-q4.gguf https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf
-
-# Enable GPU acceleration for LLM (requires CUDA)
-export CUDA_HOME=/usr/local/cuda
-export PATH=$CUDA_HOME/bin:$PATH 
-export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
-CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --force-reinstall --no-cache-dir
 ```
+
+### GPU Setup for LLM Acceleration
+
+## IMPORTANT: Python Environment for LLM Builds
+
+- **Always use the `venv312` virtual environment for all llama-cpp-python builds and LLM-related dependencies.**
+- Activate with:
+  - `source venv312/Scripts/activate` (Windows, Git Bash)
+  - Or use the full path: `../venv312/Scripts/python ...` for all pip/python commands
+
+### ⚠️ GPU Support Warning (Python 3.12/Windows)
+- As of June 2024, llama-cpp-python does **not** have official CUDA/cuBLAS GPU support for Python 3.12 on Windows.
+- You may encounter linker errors (LNK1104) or failed builds when attempting to build with CUDA.
+- For GPU support, use Python 3.10 or 3.11 in a separate venv (see below for instructions).
+- If you must use Python 3.12, you are limited to CPU-only for llama-cpp-python until upstream support improves.
+
+#### Troubleshooting: LNK1104 or Build Failures
+- If you see errors like `LNK1104: cannot open file ... .exp` or Cython build failures:
+  - Restart your shell and try again.
+  - Ensure you are using Python 3.10/3.11 for GPU builds.
+  - If using Python 3.12, expect CPU-only support for now.
+
+#### Prerequisites
+- NVIDIA GPU with CUDA support
+- CUDA Toolkit installed (version 11.8 or 12.x recommended)
+- Python 3.10 or 3.11 (Python 3.13 may have compatibility issues)
+
+#### Step 1: Verify CUDA Installation
+```bash
+# Check CUDA version
+nvcc --version
+
+# Check GPU availability
+nvidia-smi
+```
+
+#### Step 2: Uninstall CPU-only Version
+```bash
+pip uninstall llama-cpp-python -y
+```
+
+#### Step 3: Install Dependencies (if needed)
+```bash
+# For Python 3.10/3.11 (recommended)
+pip install numpy==1.26.4 cython==3.0.10
+
+# For Python 3.13 (may have issues)
+pip install numpy==1.26.4 cython==3.0.10
+```
+
+#### Step 4: Build llama-cpp-python with CUDA Support
+```bash
+# Option A: Automatic build (recommended)
+pip install llama-cpp-python --force-reinstall --upgrade --no-binary :all:
+
+# Option B: Manual build with specific CUDA version
+CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --force-reinstall --no-cache-dir
+
+# Option C: Clone and build manually
+git clone https://github.com/abetlen/llama-cpp-python.git
+cd llama-cpp-python
+pip install .
+```
+
+#### Step 5: Verify GPU Support
+```python
+import llama_cpp
+print(llama_cpp.llama_cpp.llama_backend_version())
+# Should show CUDA/cuBLAS information when loading a model
+```
+
+#### Step 6: Load Model with GPU Layers
+In your code, make sure to specify `n_gpu_layers`:
+```python
+from llama_cpp import Llama
+llm = Llama(
+    model_path="path/to/model.gguf",
+    n_gpu_layers=40,  # or as many as your GPU can handle
+)
+```
+
+#### Troubleshooting
+
+**If you see "all layers assigned to CPU" in logs:**
+1. Verify llama-cpp-python was built with CUDA support
+2. Check that `n_gpu_layers` is specified when loading the model
+3. Ensure CUDA toolkit is properly installed and in PATH
+4. Try restarting your Python environment
+
+**If build fails on Windows with Python 3.13:**
+1. Use Python 3.10 or 3.11 instead
+2. Pre-install numpy and cython before building
+3. Restart your shell/computer if you see linker errors
+
+**Common Error Messages:**
+- `LNK1104: cannot open file ... .exp` → Restart shell/computer, try Python 3.10/3.11
+- `CUDA not available` → Check CUDA installation and PATH
+- `No CUDA GPUs are available` → Check GPU drivers and nvidia-smi
 
 ### Development Mode (Hot Reload)
 ```bash
