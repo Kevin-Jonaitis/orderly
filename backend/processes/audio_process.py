@@ -3,10 +3,11 @@
 import time as time_module
 import multiprocessing
 from multiprocessing import Process
-import sounddevice as sd
+import pyaudio
 import numpy as np
 import pickle
 import queue
+import os
 
 
 class AudioProcessor(Process):
@@ -17,89 +18,65 @@ class AudioProcessor(Process):
     test_tts_audio_minimal.py structure for optimal performance.
     """
     
-    def __init__(self, audio_queue, first_audio_chunk_timestamp, use_blocking_audio=False, debug_mode=False):
+    def __init__(self, audio_queue, first_audio_chunk_timestamp, use_blocking_audio=True):
         super().__init__(name="AudioProcess")
         self.audio_queue = audio_queue  # multiprocessing.Queue
         self.first_audio_chunk_timestamp = first_audio_chunk_timestamp
-        self.use_blocking_audio = use_blocking_audio
-        self.debug_mode = debug_mode  # True for standalone testing, False for production pipeline
-        self.prerecorded_chunks = None
+        self.use_blocking_audio = use_blocking_audio  # PyAudio works best with blocking
         self.audio_stream = None
+        self.pyaudio_instance = None
         self.first_playback = True
         
-    def _load_debug_chunks(self):
-        """Load pre-recorded chunks for debugging (same as TTSProcess)"""
-        try:
-            self.prerecorded_chunks = pickle.load(open('debug_chunks_1751577529.pkl', 'rb'))
-            print(f"🔍 [AudioProcessor] Loaded {len(self.prerecorded_chunks)} pre-recorded chunks")
-        except Exception as e:
-            print(f"❌ [AudioProcessor] Failed to load debug chunks: {e}")
-            self.debug_mode = False
-            
-    def _queue_debug_chunks(self):
-        """Queue debug chunks for testing (matches test_tts_audio_minimal pattern)"""
-        if not self.prerecorded_chunks:
-            return
-            
-        print(f"🎵 [AudioProcessor] Queuing {len(self.prerecorded_chunks)} debug chunks...")
-        start_time = time_module.time()
-        
-        # Queue all chunks immediately (like test_tts_audio_minimal)
-        for i, chunk in enumerate(self.prerecorded_chunks):
-            self.audio_queue.put(chunk)
-            if i == 0:
-                first_queue_time = time_module.time()
-                print(f"🎵 [AudioProcessor] First chunk queued at: {first_queue_time:.3f}")
-        
-        end_time = time_module.time()
-        queue_duration = (end_time - start_time) * 1000
-        print(f"🎵 [AudioProcessor] All chunks queued in {queue_duration:.1f}ms")
-        
-        # Set timestamp for timing measurements
-        self.first_audio_chunk_timestamp.value = time_module.time()
-        print(f"🎵 [AudioProcessor] FIRST CHUNK READY: {self.first_audio_chunk_timestamp.value:.3f}")
+    # Debug chunk loading removed - handled externally by test scripts or TTSProcess
     
     def run(self):
-        """Main audio process - simple structure like test_tts_audio_minimal"""
+        """Main audio process - pure audio playback"""
         print("🎵 [AudioProcessor] Starting audio processing...")
-        
-        if self.debug_mode:
-            print("🔧 [AudioProcessor] Loading debug chunks...")
-            self._load_debug_chunks()
-            self._queue_debug_chunks()
-            print("✅ [AudioProcessor] Debug chunks loaded and queued")
         
         # Handle audio with minimal complexity
         self._handle_audio()
         
     def _handle_audio(self):
-        """Direct audio handling - matches test_tts_audio_minimal structure"""
-        print(f"🎵 [AudioProcessor] Starting audio handling (mode: {'blocking' if self.use_blocking_audio else 'callback'})")
+        """Direct audio handling with PyAudio"""
+        print(f"🎵 [AudioProcessor] Starting PyAudio handling (mode: {'blocking' if self.use_blocking_audio else 'callback'})")
         
         if self.use_blocking_audio:
-            self._blocking_audio()
+            self._pyaudio_blocking()
         else:
-            self._callback_audio()
+            self._pyaudio_callback()
     
-    def _blocking_audio(self):
-        """Blocking audio implementation"""
+    def _pyaudio_blocking(self):
+        """PyAudio blocking implementation for low latency"""
         try:
-            print("🎵 [AudioProcessor] Using blocking write mode")
+            print("🎵 [AudioProcessor] Using PyAudio blocking mode")
             
-            # Create OutputStream without callback
-            self.audio_stream = sd.OutputStream(
-                samplerate=24000,
+            # Initialize PyAudio with WSL2 compatibility
+            os.environ['ALSA_PCM_CARD'] = 'default'
+            os.environ['ALSA_PCM_DEVICE'] = '0'
+            self.pyaudio_instance = pyaudio.PyAudio()
+            
+            # Find working audio device
+            working_device = self._find_working_device()
+            if working_device is None:
+                print("❌ [AudioProcessor] No working audio devices found")
+                return
+            
+            # Create PyAudio stream with minimal latency
+            self.audio_stream = self.pyaudio_instance.open(
+                format=pyaudio.paFloat32,
                 channels=1,
-                dtype='float32',
-                blocksize=2048,
-                latency=0.001
+                rate=24000,
+                output=True,
+                frames_per_buffer=512,  # Much smaller than sounddevice's 2048
+                output_device_index=working_device,
+                start=False
             )
             
-            print(f"🔊 [AudioProcessor] Stream config: blocksize={self.audio_stream.blocksize}, latency={self.audio_stream.latency}")
+            print(f"🔊 [AudioProcessor] PyAudio config: 512 samples ({512/24000*1000:.1f}ms buffer)")
             
-            # Start stream after chunks are ready
-            self.audio_stream.start()
-            print("▶️  [AudioProcessor] Stream started...")
+            # Start stream
+            self.audio_stream.start_stream()
+            print("▶️  [AudioProcessor] PyAudio stream started...")
             
             # Simple blocking write loop
             while True:
@@ -111,93 +88,67 @@ class AudioProcessor(Process):
                         print(f"🔊 [AudioProcessor] FIRST WRITE: {time_module.time():.3f}")
                         self.first_playback = False
                     
-                    # Always flatten to ensure correct shape
-                    audio_chunk = audio_chunk.flatten()
+                    # Convert to bytes for PyAudio
+                    audio_chunk = audio_chunk.flatten().astype(np.float32)
+                    audio_bytes = audio_chunk.tobytes()
                     
-                    # Direct write
-                    self.audio_stream.write(audio_chunk)
+                    # Direct write to PyAudio
+                    self.audio_stream.write(audio_bytes)
                     
                 except queue.Empty:
                     # No audio available - continue waiting
                     continue
                 except Exception as e:
-                    print(f"❌ [AudioProcessor] Error in blocking write: {e}")
+                    print(f"❌ [AudioProcessor] Error in PyAudio write: {e}")
                     break
                     
         except Exception as e:
-            print(f"❌ [AudioProcessor] Error in blocking audio: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def _callback_audio(self):
-        """Callback audio implementation - matches test_tts_audio_minimal"""
-        try:
-            print("🎵 [AudioProcessor] Using callback mode")
-            
-            # Track callbacks like test_tts_audio_minimal
-            callback_count = 0
-            first_callback_time = None
-            
-            def audio_callback(outdata, frames, time, status):
-                """Audio callback - matches test_tts_audio_minimal structure"""
-                nonlocal callback_count, first_callback_time
-                
-                callback_count += 1
-                current_time = time_module.time()
-                
-                if first_callback_time is None:
-                    first_callback_time = current_time
-                    print(f"🔊 [AudioProcessor] FIRST CALLBACK: {current_time:.3f}")
-                
-                try:
-                    # Use get_nowait like test_tts_audio_minimal
-					# TODO: THIS NEEDS TO BE FIXED IF WERE ACTUALLY GOING TO USE THIS
-                    audio_chunk = self.audio_queue.get_nowait()
-                    
-                    # Record first playback timing
-                    if self.first_playback:
-                        print(f"🔊 [AudioProcessor] First chunk consumed at: {current_time:.3f}")
-                        self.first_playback = False
-                    
-                    # Always flatten to ensure correct shape
-                    audio_chunk = audio_chunk.flatten()
-                    outdata[:, 0] = audio_chunk
-                    
-                    print(f"🔊 [AudioProcessor] Callback {callback_count}: consumed chunk at {current_time:.3f}")
-                    
-                except:
-                    # No audio ready - fill with silence
-                    outdata.fill(0)
-                    print(f"🔇 [AudioProcessor] Callback {callback_count}: queue empty at {current_time:.3f}")
-            
-            # Create OutputStream with callback
-            self.audio_stream = sd.OutputStream(
-                callback=audio_callback,
-                samplerate=24000,
-                channels=1,
-                dtype='float32',
-                blocksize=2048,
-                latency=0.001
-            )
-            
-            print(f"🔊 [AudioProcessor] Stream config: blocksize={self.audio_stream.blocksize}, latency={self.audio_stream.latency}")
-            
-            # Start stream after chunks are ready (critical for low latency)
-            self.audio_stream.start()
-            print("▶️  [AudioProcessor] Stream started with chunks ready...")
-            
-            # Keep process alive without blocking loops (unlike old TTSProcess)
-            try:
-                while True:
-                    time_module.sleep(0.1)  # Light sleep to keep process alive
-            except KeyboardInterrupt:
-                print("🛑 [AudioProcessor] Stopping...")
-                
-        except Exception as e:
-            print(f"❌ [AudioProcessor] Error in callback audio: {e}")
+            print(f"❌ [AudioProcessor] Error in PyAudio blocking: {e}")
             import traceback
             traceback.print_exc()
         finally:
+            self._cleanup_pyaudio()
+    
+    def _pyaudio_callback(self):
+        """PyAudio callback implementation (not recommended for WSL2)"""
+        print("⚠️  [AudioProcessor] PyAudio callback mode not implemented - using blocking mode instead")
+        self._pyaudio_blocking()
+    
+    def _find_working_device(self):
+        """Find a working audio device in WSL2 environment"""
+        print("🔍 [AudioProcessor] Finding working audio device...")
+        
+        for i in range(self.pyaudio_instance.get_device_count()):
+            try:
+                info = self.pyaudio_instance.get_device_info_by_index(i)
+                if info['maxOutputChannels'] > 0:
+                    # Try to open a test stream
+                    test_stream = self.pyaudio_instance.open(
+                        format=pyaudio.paFloat32,
+                        channels=1,
+                        rate=24000,
+                        output=True,
+                        frames_per_buffer=512,
+                        output_device_index=i,
+                        start=False
+                    )
+                    test_stream.close()
+                    print(f"✅ [AudioProcessor] Found working device: [{i}] {info['name']}")
+                    return i
+            except Exception as e:
+                continue
+        
+        print("❌ [AudioProcessor] No working audio devices found")
+        return None
+    
+    def _cleanup_pyaudio(self):
+        """Clean up PyAudio resources"""
+        try:
             if self.audio_stream:
-                self.audio_stream.stop()
+                self.audio_stream.stop_stream()
                 self.audio_stream.close()
+            if self.pyaudio_instance:
+                self.pyaudio_instance.terminate()
+            print("✅ [AudioProcessor] PyAudio cleanup complete")
+        except Exception as e:
+            print(f"❌ [AudioProcessor] Cleanup error: {e}")

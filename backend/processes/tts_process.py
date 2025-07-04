@@ -28,6 +28,7 @@ class TTSProcess(Process):
         try:
             import pickle
             self.prerecorded_chunks = pickle.load(open('debug_chunks_1751577529.pkl', 'rb'))
+			# self.prerecorded_chunks = pickle.load(open('debug_chunks_1751577529.pkl', 'rb'))
             print(f"🔍 [DEBUG] Loaded {len(self.prerecorded_chunks)} pre-recorded chunks")
         except Exception as e:
             print(f"❌ [DEBUG] Failed to load debug chunks: {e}")
@@ -95,6 +96,8 @@ class TTSProcess(Process):
                     
                     # Send pre-recorded chunks to AudioProcessor
                     self._process_debug_chunks()
+
+                    print(f"🎵 [TTS] LAST CHUNK WRITTEN: {time_module.time():.3f}")
                     
                 else:
                     # Production path: real TTS generation

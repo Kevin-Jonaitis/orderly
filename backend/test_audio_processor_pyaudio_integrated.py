@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Standalone test for AudioProcessor - tests debug chunk playback
-This should achieve ~200ms latency like test_tts_audio_minimal.py
+PyAudio Integrated AudioProcessor Test
+Tests the modified AudioProcessor class that uses PyAudio instead of sounddevice.
+Should achieve lower latency through direct PortAudio access.
 """
 
 import multiprocessing
@@ -26,7 +27,7 @@ def wait_for_audio_input():
     print(f"🔊 Audio heard at: {hear_audio_timestamp:.3f}")
 
 def load_and_queue_debug_chunks(audio_queue):
-    """Load and queue debug chunks for testing (moved from AudioProcessor)"""
+    """Load and queue debug chunks for testing (same as original test)"""
     try:
         chunks = pickle.load(open('debug_beep_chunks_1751591457.pkl', 'rb'))
         print(f"🎵 [TEST] Loading {len(chunks)} debug chunks...")
@@ -49,12 +50,11 @@ def load_and_queue_debug_chunks(audio_queue):
         print(f"❌ [TEST] Failed to load debug chunks: {e}")
         return False
 
-
-def test_audio_processor_blocking():
-    """Test AudioProcessor with blocking mode"""
+def test_pyaudio_audioprocessor():
+    """Test PyAudio-based AudioProcessor with integrated timing"""
     global hear_audio_timestamp
     
-    print("🎵 Testing AudioProcessor with blocking mode...")
+    print("🎵 Testing PyAudio AudioProcessor Integration")
     print("🎧 Audio timing test ready")
     
     # Start input listener thread immediately
@@ -66,17 +66,17 @@ def test_audio_processor_blocking():
     audio_queue = multiprocessing.Queue(maxsize=100)
     first_audio_chunk_timestamp = multiprocessing.Value('d', 0.0)
     
-    # Create AudioProcessor (no debug mode needed)
+    # Create PyAudio-based AudioProcessor
     audio_processor = AudioProcessor(
         audio_queue=audio_queue,
         first_audio_chunk_timestamp=first_audio_chunk_timestamp,
-        use_blocking_audio=True  # Test blocking mode
+        use_blocking_audio=True  # PyAudio works best with blocking mode
     )
     
-    print("🔧 Starting AudioProcessor in blocking mode...")
+    print("🔧 Starting PyAudio AudioProcessor...")
     
     try:
-        # Start the audio processor
+        # Start the AudioProcessor
         audio_processor.start()
         
         print("⏳ AudioProcessor started - now loading chunks...")
@@ -97,11 +97,24 @@ def test_audio_processor_blocking():
         input_thread.join()
         
         if hear_audio_timestamp:
-            latency_ms = (hear_audio_timestamp - debug_chunks_sent_timestamp) * 1000
-            print(f"\n🎯 TIMING RESULTS:")
+            total_latency_ms = (hear_audio_timestamp - debug_chunks_sent_timestamp) * 1000
+            
+            print(f"\n🎯 PYAUDIO AUDIOPROCESSOR RESULTS:")
             print(f"   Debug chunks sent: {debug_chunks_sent_timestamp:.3f}")
             print(f"   Audio heard: {hear_audio_timestamp:.3f}")
-            print(f"   Total latency: {latency_ms:.1f}ms")
+            print(f"   Total latency: {total_latency_ms:.1f}ms")
+            print(f"   PyAudio buffer: 512 samples ({512/24000*1000:.1f}ms)")
+            print(f"   vs sounddevice: Expected ~100-150ms improvement")
+            
+            # Compare with previous results
+            print(f"\n📊 Comparison:")
+            print(f"   Previous sounddevice: ~200ms")
+            print(f"   Current PyAudio: {total_latency_ms:.1f}ms")
+            if total_latency_ms < 200:
+                improvement = 200 - total_latency_ms
+                print(f"   Improvement: {improvement:.1f}ms faster! 🎉")
+            else:
+                print(f"   No improvement - check PyAudio setup")
         else:
             print("❌ No audio timing recorded")
         
@@ -118,10 +131,31 @@ def test_audio_processor_blocking():
             print("🔪 Force killing AudioProcessor")
             audio_processor.kill()
         
-        print("✅ AudioProcessor blocking test complete")
+        print("✅ PyAudio AudioProcessor test complete")
+
+def compare_implementations():
+    """Show comparison between different implementations"""
+    print("\n📊 Audio Implementation Comparison:")
+    print("=" * 60)
+    print("1. Original sounddevice AudioProcessor:")
+    print("   • Buffer: 2048 samples (85.3ms)")
+    print("   • Wrapper: sounddevice → PortAudio")
+    print("   • Expected latency: ~200ms")
+    print()
+    print("2. PyAudio AudioProcessor (this test):")
+    print("   • Buffer: 512 samples (21.3ms)")
+    print("   • Direct: PyAudio → PortAudio")
+    print("   • Expected latency: ~50-100ms")
+    print()
+    print("3. Standalone PyAudio (test_audio_processor_pyaudio.py):")
+    print("   • Single process, no multiprocessing overhead")
+    print("   • Expected latency: ~30-80ms")
 
 if __name__ == "__main__":
-    print("🧪 AudioProcessor Standalone Tests")
-    print("=" * 50)
+    print("🧪 PyAudio AudioProcessor Integration Test")
+    print("=" * 60)
     
-    test_audio_processor_blocking()
+    compare_implementations()
+    print()
+    
+    test_pyaudio_audioprocessor()

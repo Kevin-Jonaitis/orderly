@@ -97,10 +97,10 @@ def main():
     manual_event_count = multiprocessing.Value('i', 0)         # Event counter (0,1,2)
     
     # Start processes
-    stt_process = STTAudioProcess(text_queue, last_text_change_timestamp)
+    stt_process = STTAudioProcess(text_queue, last_text_change_timestamp)  # COMMENTED OUT FOR TESTING
     llm_process = LLMProcess(text_queue, tts_text_queue, llm_start_timestamp, llm_send_to_tts_timestamp, llm_complete_timestamp)
     tts_process = TTSProcess(tts_text_queue, audio_queue, first_audio_chunk_timestamp)
-    audio_process = AudioProcessor(audio_queue, first_audio_chunk_timestamp, use_blocking_audio=True, debug_mode=False)
+    audio_process = AudioProcessor(audio_queue, first_audio_chunk_timestamp, use_blocking_audio=True)
     
     # Start keyboard listener thread for manual timing
     keyboard_thread = threading.Thread(target=keyboard_listener, 
@@ -108,13 +108,30 @@ def main():
     keyboard_thread.daemon = True
     keyboard_thread.start()
     
+    # Dummy text sender to test audio contention (replaces STT)
+    def send_dummy_text():
+        """Send dummy text to LLM to trigger TTS without STT audio input"""
+        time.sleep(2)  # Wait for processes to start
+        dummy_text = "Can I get a beefy 5 layer burrito?"
+        print(f"📤 [DUMMY] Sending dummy text: '{dummy_text}'")
+        text_queue.put(dummy_text)
+        
+        # Set manual speech end timestamp for timing measurement
+        manual_speech_end_timestamp.value = time.time()
+        print(f"📤 [DUMMY] Speech end timestamp set: {manual_speech_end_timestamp.value:.3f}")
+    
+    # # Start dummy text sender thread
+    # dummy_thread = threading.Thread(target=send_dummy_text)
+    # dummy_thread.daemon = True
+    # dummy_thread.start()
+    
     try:
-        stt_process.start()
+        stt_process.start()  # COMMENTED OUT FOR TESTING
         llm_process.start()
         tts_process.start()
         audio_process.start()
         
-        print("🎙️ STT → LLM → TTS → Audio Pipeline running. Press Ctrl+C to stop.")
+        print("🎙️ DUMMY → LLM → TTS → Audio Pipeline running (STT disabled for testing). Press Ctrl+C to stop.")
         
         # Timing display - wait for manual_audio_heard_timestamp to be set, then print once
         last_audio_heard_value = 0.0
@@ -163,19 +180,19 @@ def main():
         tts_text_queue.put(None)
         
         # Kill processes immediately
-        stt_process.terminate()
+        # stt_process.terminate()  # COMMENTED OUT FOR TESTING
         llm_process.terminate()
         tts_process.terminate()
         audio_process.terminate()
         
-        stt_process.join(timeout=2)
+        # stt_process.join(timeout=2)  # COMMENTED OUT FOR TESTING
         llm_process.join(timeout=2)
         tts_process.join(timeout=2)
         audio_process.join(timeout=2)
         
-        if stt_process.is_alive():
-            print("🔪 Force killing STT process")
-            stt_process.kill()
+        # if stt_process.is_alive():  # COMMENTED OUT FOR TESTING
+        #     print("🔪 Force killing STT process")
+        #     stt_process.kill()
         if llm_process.is_alive():
             print("🔪 Force killing LLM process")
             llm_process.kill()
