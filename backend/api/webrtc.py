@@ -15,6 +15,7 @@ from aiortc.contrib.media import MediaBlackhole
 from fastapi import FastAPI, HTTPException
 import collections
 import soundfile as sf
+import scipy.signal
 
 # Global state - exact copy from aiortc server.py
 pcs = set()
@@ -45,34 +46,33 @@ class AudioProcessorTrack(MediaStreamTrack):
         """Process audio frames from browser"""
         frame = await self.track.recv()
         self.frame_count += 1
-        # Convert to numpy array for STT processing
-        audio_array = frame.to_ndarray()
-        print(f"[DEBUG] Original shape: {frame.to_ndarray().shape}")
-        # Assume always (1, N): flatten to 1D
-        audio_array = audio_array.flatten()
-        # Remove duplication: take every other sample
+        # Convert to numpy array (mono, int16, 48kHz)
+        audio_array = frame.to_ndarray().flatten()
+        # Remove duplication: take every other sample (if needed)
         audio_array = audio_array[::2]
-        print(f"[DEBUG] After deduplication: {audio_array[:20]}")
+        # Now audio_array is mono, int16, 48kHz
+        # Convert to float32 in range [-1, 1]
+        audio_array = audio_array.astype(np.float32) / 32768.0
+        # Resample from 48kHz to 16kHz for conformer_stream_step
+        audio_array_16k = scipy.signal.resample_poly(audio_array, up=1, down=3)
         # Set sample rate and max_samples on first frame
         if self.sample_rate is None:
-            # WebRTC audio from browsers is almost always 48kHz (Opus default)
-            self.sample_rate = 48000
+            # Conformer expects 16kHz mono float32
+            self.sample_rate = 16000
             self.max_samples = int(self.max_seconds * self.sample_rate)
-        print(f"[DEBUG] After flatten: shape={audio_array.shape}, dtype={audio_array.dtype}, min={audio_array.min()}, max={audio_array.max()}, sample_rate={self.sample_rate}, sample={audio_array[:10]}")
         # Rolling buffer logic (only if max_samples is set)
         if self.max_samples is not None:
-            self.rolling_buffer.append(audio_array)
-            self.rolling_buffer_samples += len(audio_array)
+            self.rolling_buffer.append(audio_array_16k)
+            self.rolling_buffer_samples += len(audio_array_16k)
             # Trim buffer to last 5 seconds
             while self.rolling_buffer_samples > self.max_samples:
                 removed = self.rolling_buffer.popleft()
                 self.rolling_buffer_samples -= len(removed)
-        # Queue for STT processing
+        # Queue for STT processing (send 16kHz float32 mono)
         try:
-            self.audio_queue.put_nowait(audio_array)
-            # Log first few frames
+            self.audio_queue.put_nowait(audio_array_16k)
             if self.frame_count <= 3:
-                print(f"🎤 [WebRTC] Frame {self.frame_count}: {audio_array.shape} samples, max: {np.max(np.abs(audio_array)):.4f}")
+                print(f"🎤 [WebRTC] Frame {self.frame_count}: {audio_array_16k.shape} samples, max: {np.max(np.abs(audio_array_16k)):.4f}")
             elif self.frame_count % 50 == 0:
                 print(f"🎤 [WebRTC] Processed {self.frame_count} frames")
         except Exception as e:
@@ -83,7 +83,7 @@ class AudioProcessorTrack(MediaStreamTrack):
         return frame
     
     def save_last_5_seconds_to_wav(self, filename):
-        """Save the last 5 seconds of audio to a WAV file."""
+        """Save the last 5 seconds of audio to a WAV file (16kHz mono float32)."""
         if self.sample_rate is None or self.rolling_buffer_samples == 0 or self.max_samples is None:
             print(f"[WebRTC] No audio to save.")
             return
@@ -93,7 +93,7 @@ class AudioProcessorTrack(MediaStreamTrack):
             audio_data = audio_data[-self.max_samples:]
         print(f"[DEBUG] Saving WAV: shape={audio_data.shape}, dtype={audio_data.dtype}, min={audio_data.min()}, max={audio_data.max()}, sample_rate={self.sample_rate}")
         try:
-            sf.write(filename, audio_data, self.sample_rate, subtype='PCM_16')
+            sf.write(filename, audio_data, self.sample_rate, subtype='FLOAT')
             print(f"💾 [WebRTC] Saved last 5 seconds to {filename} ({len(audio_data)} samples @ {self.sample_rate} Hz)")
         except Exception as e:
             print(f"❌ [WebRTC] Failed to save audio: {e}")

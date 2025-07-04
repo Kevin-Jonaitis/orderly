@@ -60,3 +60,27 @@ When making changes:
 2. Test changes without modifying core LLM configuration
 3. Focus on business logic, API improvements, and user experience
 4. Maintain compatibility with existing audio processing pipeline
+
+## Audio Processing Dependency: FFmpeg
+
+This project requires [FFmpeg](https://ffmpeg.org/) to be installed and available in your system PATH for audio processing (used by pydub and NeMo).
+
+### Windows Installation (Recommended)
+
+1. Open PowerShell as Administrator (right-click → "Run as administrator").
+2. Install Chocolatey if you don't have it:
+   ```powershell
+   Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+   ```
+3. Install ffmpeg:
+   ```powershell
+   choco install ffmpeg -y
+   ```
+
+After installation, restart your terminal and verify ffmpeg is available:
+```powershell
+ffmpeg -version
+```
+You should see version information printed.
+
+If you install ffmpeg manually, ensure the folder containing `ffmpeg.exe` is added to your system PATH.

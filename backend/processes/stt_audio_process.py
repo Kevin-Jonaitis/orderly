@@ -32,7 +32,6 @@ def record_mic_buffer(mic_record_buffer, audio_data, last_record_time, sample_ra
     now = time.time()
     if now - last_record_time > record_seconds:
         sf.write(record_filename, mic_record_buffer, sample_rate)
-        print(f"[DEBUG] Saved last {record_seconds}s of mic input to {record_filename}")
         last_record_time = now
     return mic_record_buffer, last_record_time
 
@@ -93,31 +92,6 @@ class STTAudioProcess(multiprocessing.Process):
                 # If frame is available in scope, use its sample_rate
                 if 'frame' in locals() and hasattr(frame, 'sample_rate'):
                     sample_rate = frame.sample_rate
-                print(f"[DEBUG] Using sample_rate: {sample_rate}")
-
-                # If data is int16, scale to float32
-                if audio_data.dtype == np.int16:
-                    print("[DEBUG] Detected int16 audio, scaling to float32 [-1, 1]")
-                    audio_data = audio_data.astype(np.float32) / 32768.0
-
-                # Debug: print shape, dtype, min, max, and first 10 samples
-                print("[DEBUG] audio_data shape:", audio_data.shape, "dtype:", audio_data.dtype)
-                print("[DEBUG] audio_data min:", np.min(audio_data), "max:", np.max(audio_data))
-                print("[DEBUG] audio_data first 10 samples:", audio_data[:10])
-
-                # --- Record raw input as soon as it is received ---
-                raw_record_buffer = np.concatenate([raw_record_buffer, audio_data])
-                max_raw_samples = sample_rate * RECORD_SECONDS
-                if len(raw_record_buffer) > max_raw_samples:
-                    raw_record_buffer = raw_record_buffer[-max_raw_samples:]
-                now = time.time()
-                if now - last_raw_record_time > RECORD_SECONDS:
-                    # Save as float32
-                    sf.write(RAW_RECORD_FILENAME, raw_record_buffer, sample_rate)
-                    # Save as int16 for comparison
-                    sf.write(RAW_RECORD_FILENAME.replace('.wav', '_int16.wav'), (raw_record_buffer * 32768).astype(np.int16), sample_rate)
-                    print(f"[DEBUG] Saved last {RECORD_SECONDS}s of RAW input to {RAW_RECORD_FILENAME} at {sample_rate} Hz")
-                    last_raw_record_time = now
 
                 # Accumulate samples in buffer
                 audio_buffer = np.concatenate([audio_buffer, audio_data])

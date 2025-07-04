@@ -64,8 +64,8 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
                 else:
                     self.model.change_decoding_strategy(decoding_cfg)
             
-            # Model setup - CPU only
-            self.model = self.model.to('cpu')
+            # Model setup - GPU only
+            self.model = self.model.cuda()
             self.model.eval()
             
             # Store buffer class
@@ -101,13 +101,6 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
         self.pred_out_stream = None
         self.step_num = 0
         
-    def downsample_audio(self, audio_chunk):
-        """Downsample from 24kHz to 16kHz for NeMo"""
-        import numpy as np
-        target_samples = int(len(audio_chunk) * 16000 / 24000)
-        indices = np.linspace(0, len(audio_chunk) - 1, target_samples).astype(int)
-        return audio_chunk[indices]
-    
     async def transcribe(self, wav_bytes: bytes) -> str:
         """File-based transcription for compatibility with BaseSTTProcessor"""
         import torch
@@ -231,10 +224,6 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
             # Remove the processed audio, keep remainder
             self.audio_buffer = self.audio_buffer[chunk_samples:]  # Remove 1 chunk, keep overlap
             
-            # Debug: print audio format
-            print("[NeMo DEBUG] audio_to_process shape:", audio_to_process.shape, "dtype:", audio_to_process.dtype)
-            print("[NeMo DEBUG] audio min:", np.min(audio_to_process), "max:", np.max(audio_to_process))
-            
             # Apply preprocessing to match NeMo's expected format  
             audio_tensor = torch.tensor(audio_to_process, dtype=torch.float32).unsqueeze(0)  # (1, time)
             audio_length = torch.tensor([len(audio_to_process)], dtype=torch.long)
@@ -253,7 +242,6 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
             
             # Check if we got valid features
             if processed_signal.numel() == 0 or processed_signal_length.item() == 0:
-                print("[NeMo DEBUG] NO VALID FEATURES")
                 return "", 0.0
             
             # Process with streaming model
@@ -284,8 +272,6 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
             
             process_time = (time.time() - start_time) * 1000
 
-            print("[NeMo DEBUG] transcribed_texts", transcribed_texts)
-            
             # Extract transcription
             if transcribed_texts and len(transcribed_texts) > 0:
                 if hasattr(transcribed_texts[0], 'text'):

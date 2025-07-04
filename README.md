@@ -39,6 +39,11 @@ A real-time AI-powered order taking system with streaming audio and intelligent 
 # Install system dependencies (Ubuntu/Debian/WSL)
 sudo apt update && sudo apt install -y ffmpeg
 
+
+# Instal torch w/ cuda(change the cu128 depending on your cuda version)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+pip install cuda-python==12.8
+
 # For other systems:
 # macOS: brew install ffmpeg
 # Windows: Download from https://ffmpeg.org/download.html
