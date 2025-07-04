@@ -211,14 +211,15 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
         from datetime import datetime
         
         try:
-            # Downsample to 16kHz for NeMo
-            audio_16k = self.downsample_audio(audio_chunk)
+            # We don't need to downsample here, because we're already doing it in the webrtc.py file
+            # # Downsample to 16kHz for NeMo
+            # audio_16k = self.downsample_audio(audio_chunk)
             
             # Add to buffer
-            self.audio_buffer.extend(audio_16k)
+            self.audio_buffer.extend(audio_chunk)
             
             # Process when we have 2 chunks (160ms) for stable mel features
-            chunk_samples = len(audio_16k)
+            chunk_samples = len(audio_chunk)
             min_samples = chunk_samples * self.min_chunks  # 160ms worth
             
             if len(self.audio_buffer) < min_samples:
@@ -229,6 +230,10 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
             audio_to_process = np.array(self.audio_buffer[:min_samples])
             # Remove the processed audio, keep remainder
             self.audio_buffer = self.audio_buffer[chunk_samples:]  # Remove 1 chunk, keep overlap
+            
+            # Debug: print audio format
+            print("[NeMo DEBUG] audio_to_process shape:", audio_to_process.shape, "dtype:", audio_to_process.dtype)
+            print("[NeMo DEBUG] audio min:", np.min(audio_to_process), "max:", np.max(audio_to_process))
             
             # Apply preprocessing to match NeMo's expected format  
             audio_tensor = torch.tensor(audio_to_process, dtype=torch.float32).unsqueeze(0)  # (1, time)
@@ -248,6 +253,7 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
             
             # Check if we got valid features
             if processed_signal.numel() == 0 or processed_signal_length.item() == 0:
+                print("[NeMo DEBUG] NO VALID FEATURES")
                 return "", 0.0
             
             # Process with streaming model
@@ -277,6 +283,8 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
                         )
             
             process_time = (time.time() - start_time) * 1000
+
+            print("[NeMo DEBUG] transcribed_texts", transcribed_texts)
             
             # Extract transcription
             if transcribed_texts and len(transcribed_texts) > 0:
@@ -297,7 +305,9 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
             return current_text.strip(), process_time
             
         except Exception as e:
-            logger.error(f"❌ Error processing chunk {self.step_num}: {e}")
+            print(f"[NeMo ERROR] Exception in process_audio_chunk: {e}")
+            import traceback
+            traceback.print_exc()
             return "", 0.0
 
 # ================== STT FACTORY ==================

@@ -6,6 +6,7 @@ pydantic==2.5.0
 torch>=2.0.0
 torchaudio>=2.0.0
 numpy>=1.20.0
+scipy
 
 # LLM dependencies
 # NOTE: For GPU acceleration, install with CUDA support:
