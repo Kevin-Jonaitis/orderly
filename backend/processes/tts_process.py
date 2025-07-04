@@ -1,29 +1,26 @@
 #!/usr/bin/env python3
 
 import time as time_module
-import threading
-import queue
 from multiprocessing import Process
-import sounddevice as sd
 import numpy as np
 import soundfile as sf
 from processors.orpheus_tts import OrpheusTTS
 
 
 class TTSProcess(Process):
-    """TTS process that receives text from LLM and streams audio to speakers.
+    """TTS process that generates audio and sends chunks to AudioProcessor.
     
-    Modeled after test_tts.py with real-time audio streaming.
-    Runs in a separate process to avoid blocking the LLM.
+    Simplified design that focuses only on TTS generation.
+    Audio handling is delegated to AudioProcessor for better separation.
     """
     
-    def __init__(self, tts_text_queue, first_audio_chunk_timestamp):
+    def __init__(self, tts_text_queue, audio_queue, first_audio_chunk_timestamp):
         super().__init__(name="TTSProcess")
         self.tts_text_queue = tts_text_queue
+        self.audio_queue = audio_queue  # multiprocessing.Queue to AudioProcessor
         self.tts = None
         self.first_audio_chunk_timestamp = first_audio_chunk_timestamp
         self.debug_mode = True  # Set to False to use real TTS generation
-        self.use_blocking_audio = False  # Set to False to use callback mode
         self.prerecorded_chunks = None  # Will load during init
     
     def _load_debug_chunks(self):
@@ -36,139 +33,25 @@ class TTSProcess(Process):
             print(f"❌ [DEBUG] Failed to load debug chunks: {e}")
             self.debug_mode = False  # Fall back to real TTS
     
-    def _process_debug_chunks(self, audio_queue):
-        """Process pre-recorded chunks - optimized for speed"""
+    def _process_debug_chunks(self):
+        """Process pre-recorded chunks - send to AudioProcessor"""
         start_time = time_module.time()
-        print(f"🔍 [DEBUG] Starting chunk processing at {start_time:.3f}")
+        print(f"🔍 [TTS] Starting chunk processing at {start_time:.3f}")
         
-        # Simple, fast queuing - no expensive operations
+        # Simple, fast queuing to AudioProcessor
         for i, audio_array in enumerate(self.prerecorded_chunks):
-            # Direct queue - no splitting since blocksize now matches chunk size (2048)
-            audio_queue.put(audio_array)
+            # Direct queue to AudioProcessor
+            self.audio_queue.put(audio_array)
         
         end_time = time_module.time()
         duration = (end_time - start_time) * 1000
-        print(f"🔍 [DEBUG] Queued {len(self.prerecorded_chunks)} chunks in {duration:.1f}ms at {end_time:.3f}")
+        print(f"🔍 [TTS] Queued {len(self.prerecorded_chunks)} chunks to AudioProcessor in {duration:.1f}ms at {end_time:.3f}")
     
-    def _audio_thread(self, audio_queue):
-        """Dedicated thread for audio operations - switches between blocking/callback modes"""
-        print(f"🎵 [Audio Thread] Starting audio operations (mode: {'blocking' if self.use_blocking_audio else 'callback'})...")
-        
-        if self.use_blocking_audio:
-            self._blocking_audio_loop(audio_queue)
-        else:
-            self._callback_audio_loop(audio_queue)
-    
-    def _blocking_audio_loop(self, audio_queue):
-        """Blocking write audio implementation"""
-        try:
-            print("🎵 [Audio] Using blocking write mode")
-            
-            # Create OutputStream without callback
-            self.audio_stream = sd.OutputStream(
-                samplerate=24000, 
-                channels=1, 
-                dtype='float32',
-                blocksize=2048,  # Match TTS chunk size for efficiency
-                latency=0.001   # Minimal latency
-            )
-            
-            print(f"🔍 [Audio] OutputStream configuration:")
-            print(f"   Samplerate: {self.audio_stream.samplerate}")
-            print(f"   Blocksize: {self.audio_stream.blocksize}")
-            print(f"   Latency: {self.audio_stream.latency}")
-            print(f"   Device: {self.audio_stream.device}")
-            print("🎵 [Audio] Stream created but not started")
-            
-            # Simple blocking write loop
-            while True:
-                # Time the queue wait
-                queue_start = time_module.time()
-                audio_chunk = audio_queue.get()  # Block until audio available
-                queue_end = time_module.time()
-                queue_wait_ms = (queue_end - queue_start) * 1000
-                print(f"🔍 Queue wait: {queue_wait_ms:.1f}ms")
-                
-                # Record first write timing
-                if self.first_playback:
-                    print(f"🔊 FIRST WRITE: {queue_end:.3f}")
-                    self.first_playback = False
-                
-                # Always flatten to ensure correct shape
-                audio_chunk = audio_chunk.flatten()
-                
-                # Time the audio write
-                write_start = time_module.time()
-                self.audio_stream.write(audio_chunk)
-                write_end = time_module.time()
-                write_duration_ms = (write_end - write_start) * 1000
-                print(f"🔍 Write duration: {write_duration_ms:.1f}ms")
-            
-        except Exception as e:
-            print(f"❌ [Audio] Error in blocking audio: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def _callback_audio_loop(self, audio_queue):
-        """Callback audio implementation"""
-        try:
-            print("🎵 [Audio] Using callback mode")
-            
-            def audio_callback(outdata, frames, time, status):
-                """Audio callback - called by audio system when it needs data"""
-                if status:
-                    print("!!!!!!!!!!!!!!!!!STATUS: ", status)
-                try:
-                    # Time the queue operation
-                    queue_start = time_module.time()
-                    audio_chunk = audio_queue.get()
-                    queue_end = time_module.time()
-                    queue_wait_ms = (queue_end - queue_start) * 1000
-                    print(f"🔍 Callback queue wait: {queue_wait_ms:.1f}ms")
-                    
-                    # Record first playback timing
-                    if self.first_playback:
-                        print(f"🔊 FIRST CALLBACK: {queue_end:.3f}")
-                        self.first_playback = False
-                    
-                    # Flatten and assign to output
-                    audio_chunk = audio_chunk.flatten()
-                    outdata[:, 0] = audio_chunk
-                    
-                except queue.Empty:
-                    # No audio ready - fill with silence
-                    outdata.fill(0)
-                print("OUTDATA: ", outdata)
-            
-            # Create OutputStream with callback
-            self.audio_stream = sd.OutputStream(
-                callback=audio_callback,
-                samplerate=24000, 
-                channels=1, 
-                dtype='float32',
-                blocksize=2048,  # Match TTS chunk size for efficiency
-                latency=0.001   # Minimal latency
-            )
-            
-            print(f"🔍 [Audio] OutputStream configuration:")
-            print(f"   Samplerate: {self.audio_stream.samplerate}")
-            print(f"   Blocksize: {self.audio_stream.blocksize}")
-            print(f"   Latency: {self.audio_stream.latency}")
-            print(f"   Device: {self.audio_stream.device}")
-            print("🎵 [Audio] Stream created but not started")
-            
-            # Keep callback thread alive
-            while True:
-                time_module.sleep(1)
-            
-        except Exception as e:
-            print(f"❌ [Audio] Error in callback audio: {e}")
-            import traceback
-            traceback.print_exc()
+    # Audio handling removed - now handled by AudioProcessor
     
     def run(self):
-        """Main TTS process - coordinate audio and TTS threads"""
-        print("🎵 Starting TTS process with complete threading...")
+        """Main TTS process - simplified without audio threading"""
+        print("🎵 Starting TTS process (audio handled by AudioProcessor)...")
         
         # Initialize TTS system
         if not self.debug_mode:
@@ -180,44 +63,18 @@ class TTSProcess(Process):
             self._load_debug_chunks()
             print("✅ Debug chunks loaded")
         
-        # Set up shared resources
-        audio_queue = queue.Queue(maxsize=100)
-        self.first_playback = True
-        self.audio_active = True  # Simple boolean instead of Event
-        
-        # Start audio thread
-        audio_thread = threading.Thread(
-            target=self._audio_thread,
-            args=(audio_queue,),
-            name="TTS-Audio-Thread"
-        )
-        audio_thread.daemon = True
-        audio_thread.start()
-        
-        # Wait for audio stream to be ready
-        time_module.sleep(0.1)
-        
-        # Start TTS thread
-        tts_thread = threading.Thread(
-            target=self._tts_main_thread,
-            args=(audio_queue,),
-            name="TTS-Main-Thread"
-        )
-        tts_thread.daemon = True
-        tts_thread.start()
-        
-        # Just wait for TTS thread (daemon threads auto-cleanup on exit)
+        # Run TTS processing directly (no threading complexity)
         try:
-            tts_thread.join()
+            self._tts_main_loop()
         except KeyboardInterrupt:
             print("\n🛑 Keyboard interrupt - process will exit")
         
         print("🛑 TTS process complete")
     
-    def _tts_main_thread(self, audio_queue):
-        """Dedicated thread for TTS operations - handles while loop and generation"""
+    def _tts_main_loop(self):
+        """Main TTS processing loop - sends chunks to AudioProcessor"""
         try:
-            print("🎧 [TTS] Thread ready - waiting for text from LLM...")
+            print("🎧 [TTS] Ready - waiting for text from LLM...")
             
             while True:
                 # Block until we receive text from LLM process
@@ -230,24 +87,14 @@ class TTSProcess(Process):
                 
                 print(f"📥 [TTS] RECEIVED TEXT: '{text[:50]}{'...' if len(text) > 50 else ''}'")
                 
-                # Reset state for new generation
-                self.first_playback = True
-                
                 if self.debug_mode:
-                    # Debug path: use pre-recorded chunks (near-instantaneous)
-                    print(f"🔍 [DEBUG] Using pre-recorded chunks")
+                    # Debug path: use pre-recorded chunks
+                    print(f"🔍 [TTS] Using pre-recorded chunks")
                     self.first_audio_chunk_timestamp.value = time_module.time()
-                    print(f"🎵 [DEBUG] FIRST CHUNK READY: {self.first_audio_chunk_timestamp.value:.3f}")
+                    print(f"🎵 [TTS] FIRST CHUNK READY: {self.first_audio_chunk_timestamp.value:.3f}")
                     
-                    # Signal that audio is ready
-                    self.audio_active = True
-                    
-                    # Process pre-recorded chunks
-                    self._process_debug_chunks(audio_queue)
-                    
-                    # Start audio stream after chunks are queued
-                    self.audio_stream.start()
-                    print("🎵 [Audio] Stream started after chunks queued")
+                    # Send pre-recorded chunks to AudioProcessor
+                    self._process_debug_chunks()
                     
                 else:
                     # Production path: real TTS generation
@@ -273,32 +120,25 @@ class TTSProcess(Process):
                             print(f"🔍 [TTS] First chunk - Max: {chunk_max:.4f}, RMS: {chunk_rms:.4f}")
                             
                             first_chunk = False
-                            
-                            # Signal that audio is ready
-                            self.audio_active = True
-                            
-                            # Start audio stream after first chunk is ready
-                            self.audio_stream.start()
-                            print("🎵 [Audio] Stream started after first chunk ready")
                         
-                        # Split into 512-sample blocks
+                        # Split into blocks and send to AudioProcessor
                         chunk_size = 512
                         audio_flat = audio_array.flatten()
                         
-                        # Queue blocks
+                        # Send blocks to AudioProcessor
                         num_blocks = len(audio_flat) // chunk_size
                         for i in range(num_blocks):
                             start_idx = i * chunk_size
                             end_idx = start_idx + chunk_size
                             audio_block = audio_flat[start_idx:end_idx]
-                            audio_queue.put(audio_block)
+                            self.audio_queue.put(audio_block)
                         
                         # Handle remaining samples
                         remaining_samples = len(audio_flat) % chunk_size
                         if remaining_samples > 0:
                             remaining_audio = audio_flat[num_blocks * chunk_size:]
                             padded_audio = np.pad(remaining_audio, (0, chunk_size - remaining_samples), mode='constant')
-                            audio_queue.put(padded_audio)
+                            self.audio_queue.put(padded_audio)
                     
                     print("🎵 [TTS] Generation complete")
                     

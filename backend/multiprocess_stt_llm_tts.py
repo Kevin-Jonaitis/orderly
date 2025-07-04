@@ -22,6 +22,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from processes.stt_audio_process import STTAudioProcess
 from processes.llm_process import LLMProcess
 from processes.tts_process import TTSProcess
+from processes.audio_process import AudioProcessor
 
 def keyboard_listener(manual_speech_end_timestamp, manual_audio_heard_timestamp, manual_event_count):
     """Simple keyboard listener using input() in a thread"""
@@ -81,6 +82,7 @@ def main():
     # Create communication queues
     text_queue = multiprocessing.Queue(maxsize=100)  # STT → LLM
     tts_text_queue = multiprocessing.Queue(maxsize=10)  # LLM → TTS
+    audio_queue = multiprocessing.Queue(maxsize=100)  # TTS → AudioProcessor
     
     # Create 7 simple timing variables
     manual_speech_end_timestamp = multiprocessing.Value('d', 0.0)
@@ -97,7 +99,8 @@ def main():
     # Start processes
     stt_process = STTAudioProcess(text_queue, last_text_change_timestamp)
     llm_process = LLMProcess(text_queue, tts_text_queue, llm_start_timestamp, llm_send_to_tts_timestamp, llm_complete_timestamp)
-    tts_process = TTSProcess(tts_text_queue, first_audio_chunk_timestamp)
+    tts_process = TTSProcess(tts_text_queue, audio_queue, first_audio_chunk_timestamp)
+    audio_process = AudioProcessor(audio_queue, first_audio_chunk_timestamp, use_blocking_audio=True, debug_mode=False)
     
     # Start keyboard listener thread for manual timing
     keyboard_thread = threading.Thread(target=keyboard_listener, 
@@ -109,8 +112,9 @@ def main():
         stt_process.start()
         llm_process.start()
         tts_process.start()
+        audio_process.start()
         
-        print("🎙️ STT → LLM → TTS Pipeline running. Press Ctrl+C to stop.")
+        print("🎙️ STT → LLM → TTS → Audio Pipeline running. Press Ctrl+C to stop.")
         
         # Timing display - wait for manual_audio_heard_timestamp to be set, then print once
         last_audio_heard_value = 0.0
@@ -162,10 +166,12 @@ def main():
         stt_process.terminate()
         llm_process.terminate()
         tts_process.terminate()
+        audio_process.terminate()
         
         stt_process.join(timeout=2)
         llm_process.join(timeout=2)
         tts_process.join(timeout=2)
+        audio_process.join(timeout=2)
         
         if stt_process.is_alive():
             print("🔪 Force killing STT process")
@@ -176,6 +182,9 @@ def main():
         if tts_process.is_alive():
             print("🔪 Force killing TTS process")
             tts_process.kill()
+        if audio_process.is_alive():
+            print("🔪 Force killing Audio process")
+            audio_process.kill()
         
         print("✅ All processes terminated")
 
