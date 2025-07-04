@@ -2,7 +2,7 @@
 API routes for the AI Order Taker backend.
 
 This module provides:
-- WebSocket endpoints for audio and order streaming
+- WebSocket endpoints for order streaming
 - HTTP endpoints for file uploads and order management
 - Static file serving
 """
@@ -19,15 +19,12 @@ from fastapi.responses import FileResponse
 
 from processors.llm import OrderItem
 from utils.latency import LatencyLogger
-from utils.audio import convert_webm_to_wav
 
 logger = logging.getLogger(__name__)
 
 # Global state (in production, use proper state management)
 current_order: List[OrderItem] = []
-active_connections: List[WebSocket] = []
 order_connections: List[WebSocket] = []
-audio_accumulator: dict = {}  # Store accumulated audio per connection
 
 # Initialize latency logger
 latency_logger = LatencyLogger()
@@ -35,57 +32,6 @@ latency_logger = LatencyLogger()
 def setup_routes(app: FastAPI, stt_processor, llm_reasoner, tts_processor):
     """Set up all API routes for the FastAPI app"""
     
-    @app.websocket("/ws/audio")
-    async def websocket_audio(websocket: WebSocket):
-        """WebSocket endpoint for audio streaming"""
-        await websocket.accept()
-        active_connections.append(websocket)
-        connection_id = str(id(websocket))
-        audio_accumulator[connection_id] = b""
-        
-        logger.info("Audio WebSocket connected")
-        
-        try:
-            while True:
-                # === TEST MODE: USE STATIC WAV FILE ===
-                # Still receive bytes to maintain WebSocket protocol
-                await websocket.receive_bytes()
-                
-                # Load test WAV file instead of processing real audio
-                test_wav_path = "test/test_audio.wav"
-                try:
-                    with open(test_wav_path, "rb") as f:
-                        wav_bytes = f.read()
-                    
-                    print(f"📁 Loading test file: {test_wav_path} ({len(wav_bytes)} bytes)")
-                    
-                    # Process test audio through STT pipeline
-                    await process_audio_pipeline(wav_bytes, websocket, stt_processor, llm_reasoner, tts_processor)
-                    
-                    # Log test audio processing
-                    latency_logger.log_event("AUDIO_RECEIVED", {
-                        "test_file": test_wav_path,
-                        "wav_size": len(wav_bytes)
-                    })
-                    
-                except FileNotFoundError:
-                    print(f"❌ Test file not found: {test_wav_path}")
-                    print("💡 Create a test WAV file at test/test_audio.wav")
-                    await asyncio.sleep(1)  # Prevent spam
-                
-        except WebSocketDisconnect:
-            logger.info("Audio WebSocket disconnected")
-            if websocket in active_connections:
-                active_connections.remove(websocket)
-            # Clean up accumulator
-            if connection_id in audio_accumulator:
-                del audio_accumulator[connection_id]
-        except Exception as e:
-            logger.error(f"Error in audio WebSocket: {e}")
-            if websocket in active_connections:
-                active_connections.remove(websocket)
-            if connection_id in audio_accumulator:
-                del audio_accumulator[connection_id]
 
     @app.websocket("/ws/order")
     async def websocket_order(websocket: WebSocket):
@@ -112,62 +58,6 @@ def setup_routes(app: FastAPI, stt_processor, llm_reasoner, tts_processor):
             if websocket in order_connections:
                 order_connections.remove(websocket)
 
-    async def process_audio_pipeline(audio_chunk: bytes, websocket: WebSocket, stt_processor, llm_reasoner, tts_processor):
-        """Process audio through the full pipeline"""
-        pipeline_start = time.time()
-        
-        try:
-            # Step 1: STT
-            transcribed_text = await stt_processor.transcribe(audio_chunk)
-            
-            # Step 2: LLM reasoning
-            new_items = await llm_reasoner.process_order(transcribed_text)
-            
-            # Step 3: Update order
-            global current_order
-            current_order.extend(new_items)
-            
-            # Step 4: Generate response (using streaming method)
-            response_text = ""
-            for token in llm_reasoner.generate_response_stream("TO CHANGE: MY TEXT", None):
-                response_text += token
-            
-            # Step 5: TTS
-            audio_response = await tts_processor.synthesize(response_text)
-            
-            # Step 6: Send updates
-            await broadcast_order_update()
-            
-            # Send transcription back
-            try:
-                await websocket.send_text(json.dumps({
-                    "type": "transcription",
-                    "text": transcribed_text
-                }))
-                
-                # Send audio response (stub for now)
-                await websocket.send_text(json.dumps({
-                    "type": "audio_response",
-                    "text": response_text
-                }))
-            except Exception as e:
-                logger.error(f"Error sending WebSocket message: {e}")
-                raise  # Re-raise to trigger disconnection cleanup
-            
-            # Log total pipeline latency
-            total_latency = (time.time() - pipeline_start) * 1000
-            latency_logger.log_event("PIPELINE_TOTAL", {
-                "transcription": transcribed_text,
-                "response": response_text,
-                "items_added": len(new_items)
-            }, total_latency)
-            
-        except Exception as e:
-            logger.error(f"Error in audio pipeline: {e}")
-            await websocket.send_text(json.dumps({
-                "type": "error",
-                "message": str(e)
-            }))
 
     async def broadcast_order_update():
         """Broadcast order updates to all connected clients"""

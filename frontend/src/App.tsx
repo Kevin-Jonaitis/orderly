@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Container, Navbar, Nav, Row, Col, Card } from 'react-bootstrap';
-import { AudioRecorder } from './components/AudioRecorder';
+import { WebRTCAudioRecorder } from './components/WebRTCAudioRecorder';
 import { OrderDisplay } from './components/OrderDisplay';
 import { MenuUpload } from './components/MenuUpload';
 
@@ -37,7 +37,7 @@ function App() {
             <Col md={6}>
               <Card>
                 <Card.Body>
-                  <AudioRecorder />
+                  <WebRTCAudioRecorder />
                 </Card.Body>
               </Card>
             </Col>

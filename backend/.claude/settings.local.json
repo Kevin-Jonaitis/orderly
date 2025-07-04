@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(systemctl list-units:*)",
+      "Bash(sudo systemctl stop:*)",
+      "Bash(sudo systemctl disable:*)",
+      "Bash(systemctl:*)",
+      "Bash(gpustack stop:*)",
+      "Bash(/home/kevin/.local/bin/gpustack stop)",
+      "Bash(pkill:*)",
+      "Bash(lsof:*)",
+      "Bash(ss:*)",
+      "Bash(fuser:*)",
+      "Bash(nvidia-smi:*)",
+      "Bash(python:*)",
+      "Bash(pip uninstall:*)",
+      "Bash(pip install:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)"
+    ],
+    "deny": []
+  }
+}

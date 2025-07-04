@@ -1,4 +1,5 @@
 # Claude Code Assistant Guidelines
+## This is a windows project, so use windows commands when building depdencies and running things: python, pip, etc
 
 ## Critical Configuration Constraints
 

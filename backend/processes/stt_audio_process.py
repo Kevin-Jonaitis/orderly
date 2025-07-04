@@ -1,6 +1,7 @@
 """
-STT + Audio Process
-Combines audio capture and speech-to-text processing in a single process.
+STT + WebRTC Audio Process
+Processes audio from WebRTC connections and performs speech-to-text processing.
+No longer captures from microphone - only processes WebRTC audio input.
 """
 
 import sys
@@ -17,75 +18,78 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from processors.stt import RealTimeSTTProcessor
 
 # Audio configuration
-SAMPLE_RATE = 24000  # Match Rust server (will downsample to 16kHz for NeMo)
-CHUNK_DURATION_MS = 80  # 80ms chunks like rust server
-CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION_MS / 1000)  # 1920 samples at 24kHz
+SAMPLE_RATE = 16000  # Match frontend and NeMo STT sample rate
+CHUNK_DURATION_MS = 80  # 80ms chunks for real-time processing
+CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION_MS / 1000)  # 1280 samples at 16kHz
 
 class STTAudioProcess(multiprocessing.Process):
-    """Process that handles audio capture and STT processing"""
+    """Process that handles WebRTC audio input and STT processing"""
     
-    def __init__(self, text_queue, last_text_change_timestamp):
+    def __init__(self, text_queue, webrtc_audio_queue, last_text_change_timestamp):
         super().__init__()
         self.text_queue = text_queue
+        self.webrtc_audio_queue = webrtc_audio_queue  # Queue to receive WebRTC audio
         self.last_text_change_timestamp = last_text_change_timestamp
         self.last_text = ""  # Track previous text for comparison
         
     def run(self):
-        """Main process loop - runs audio capture and STT"""
-        # Import sounddevice only in the child process to avoid multiprocessing conflicts
-        import sounddevice as sd
+        """Main process loop - processes WebRTC audio and runs STT"""
+        print("🎤 Starting STT+WebRTC Audio process...")
         
         # Initialize STT processor - let it crash if it fails
         print("📝 Initializing STT processor...")
         stt_processor = RealTimeSTTProcessor()
         print("✅ STT processor loaded")
         
-        # Set up audio capture with thread-safe queue
-        audio_queue = queue.Queue(maxsize=100)
-        
-        def audio_callback(indata, frames, time, status):
-            """Audio callback - convert to mono and queue with timestamp"""
-            if status:
-                print(f"⚠️  Audio status: {status}")
-            mono_data = indata[:, 0].astype(np.float32).copy()
-            capture_timestamp = time.currentTime  # Sounddevice timestamp
-            try:
-                audio_queue.put_nowait((mono_data, capture_timestamp))  # Include timestamp
-            except queue.Full:
-                print("⚠️  Audio queue full, dropping frame")
-        
-        print("🎤 STT+Audio process started")
+        print("🎤 STT+WebRTC process started")
         print(f"📊 Audio: {SAMPLE_RATE}Hz, {CHUNK_DURATION_MS}ms chunks ({CHUNK_SIZE} samples)")
+        print("🔗 Waiting for WebRTC audio input...")
         
-        # Try to use the default device with explicit configuration
+        # Run async event loop to process WebRTC audio
         try:
-            print("🎤 Attempting to open audio input stream...")
-            with sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                channels=1,
-                dtype="float32",
-                callback=audio_callback,
-                blocksize=CHUNK_SIZE,  # 80ms blocks (1920 samples at 24kHz)
-                device=None,  # Use default device
-            ):
-                print("✅ Audio stream opened successfully")
-                # Run async event loop
-                asyncio.run(self._process_audio_loop(stt_processor, audio_queue))
+            asyncio.run(self._process_webrtc_audio_loop(stt_processor))
         except Exception as e:
-            print(f"❌ Failed to open audio stream: {e}")
-            print("Available devices:")
-            print(sd.query_devices())
+            print(f"❌ Error in WebRTC audio processing: {e}")
+            import traceback
+            traceback.print_exc()
             raise
     
-    async def _process_audio_loop(self, stt_processor, audio_queue):
-        """Async loop for processing audio chunks"""
+    async def _process_webrtc_audio_loop(self, stt_processor):
+        """Async loop for processing WebRTC audio chunks"""
         while True:
-            # Get audio chunk with timestamp from thread-safe queue (blocking)
-            audio_chunk, capture_time = audio_queue.get(block=True)
+            try:
+                # Get audio data from WebRTC queue with timeout
+                audio_data = self.webrtc_audio_queue.get()
+
+                # Debug: print raw audio data and type
+                print("Raw audio_data received:", audio_data)
+                print("Type:", type(audio_data))
+
+                if not isinstance(audio_data, np.ndarray):
+                    print("NOT THE INSTANCE TYPE WE THOUGHT")
+                    audio_data = np.array(audio_data, dtype=np.float32)
+                audio_data = audio_data.astype(np.float32)
+
+                # Check chunk size
+                if len(audio_data) != CHUNK_SIZE:
+                    print(f"Warning: received chunk of size {len(audio_data)}, expected {CHUNK_SIZE}")
+                    continue
+
+                # Process chunk with STT
+                await self._process_audio_chunk(audio_data, stt_processor)
+
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"❌ Error processing WebRTC audio: {e}")
+                continue
+    
+    async def _process_audio_chunk(self, audio_chunk, stt_processor):
+        """Process a single audio chunk with STT"""
+        try:
             processing_start = time.time()
             
             # Time the entire process_audio_chunk function
-            chunk_start_time = time.time()
             result = await stt_processor.process_audio_chunk(audio_chunk)
             
             text, internal_process_time = result
@@ -100,10 +104,13 @@ class STTAudioProcess(multiprocessing.Process):
                     self.last_text_change_timestamp.value = time.time()
                     self.last_text = text
                 
-                print(f"📝 STT: '{text}'")
+                print(f"📝 STT (WebRTC): '{text}'")
                 
                 # Send already-stripped text to LLM process - crash if queue full
                 try:
                     self.text_queue.put(text, block=False)
                 except Exception as e:
                     print(f"❌ Failed to send text to LLM process: {e}")
+                    
+        except Exception as e:
+            print(f"❌ Error in STT processing: {e}")
