@@ -69,6 +69,10 @@ class AudioProcessor(Process):
     def _process_audio_for_webrtc(self, audio_chunk):
         """Process audio chunk for WebRTC streaming"""
         try:
+            # Ensure audio_chunk is 1D (mono)
+            if len(audio_chunk.shape) > 1:
+                audio_chunk = audio_chunk.flatten()
+            
             # Add to buffer
             self.audio_buffer = np.concatenate([self.audio_buffer, audio_chunk])
             

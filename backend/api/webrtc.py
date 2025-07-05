@@ -32,67 +32,70 @@ def setup_webrtc_routes(app: FastAPI, audio_queue: multiprocessing.Queue, audio_
     
     @app.post("/api/webrtc/offer")
     async def offer(params: dict):
-        """Handle WebRTC offer - exact copy of aiortc server.py offer() function"""
+        """Handle WebRTC offer - simplified based on aiortc server.py"""
         
-        # Extract parameters - same as aiortc server.py
+        # Extract parameters
         offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
         
         print(f"🤝 [WebRTC] Received offer")
         
-        # Create peer connection - exact copy from aiortc server.py
+        # Create peer connection
         pc = RTCPeerConnection()
         pc_id = f"PeerConnection({id(pc)})"
         pcs.add(pc)
         
         print(f"🔧 [WebRTC] Created {pc_id}")
         
-        # Set up recorder equivalent (our audio queue)
-        recorder = MediaBlackhole()  # We don't record to file, just process
-        
         @pc.on("connectionstatechange")
         async def on_connectionstatechange():
-            """Monitor connection state - exact copy from aiortc server.py"""
+            """Monitor connection state"""
             print(f"🔗 [WebRTC] {pc_id} connection state is {pc.connectionState}")
             if pc.connectionState == "failed":
                 print(f"❌ [WebRTC] {pc_id} connection failed")
             elif pc.connectionState == "closed":
                 print(f"🔌 [WebRTC] {pc_id} connection closed")
                 pcs.discard(pc)
-                await recorder.stop()
 
         @pc.on("track")
         def on_track(track):
-            """Handle incoming track - adapted from aiortc server.py"""
+            """Handle incoming track - assign transceiver 0 to AudioProcessorTrack, transceiver 1 to AudioResponseTrack"""
             print(f"🎤 [WebRTC] {pc_id} received {track.kind} track")
             
             if track.kind == "audio":
-                # Create audio processor track (replaces player.audio from server.py)
-                audio_processor = AudioProcessorTrack(track, audio_queue, pc_id)
-                pc.addTrack(audio_processor)
-                
-                print(f"✅ [WebRTC] {pc_id} audio processing started")
+                # Find the transceiver for this track
+                for transceiver in pc.getTransceivers():
+                    if transceiver.receiver.track == track:
+                        mid = transceiver.mid
+                        print(f"🎤 [WebRTC] {pc_id} found track in transceiver with MID: {mid}")
+                        
+                        # Assign MID 0 to AudioProcessorTrack, MID 1 to AudioResponseTrack
+                        if mid == "0":
+                            print(f"🎤 [WebRTC] {pc_id} setting up AudioProcessorTrack for MID 0")
+                            audio_processor = AudioProcessorTrack(track, audio_queue, pc_id)
+                            pc.addTrack(audio_processor)
+                        elif mid == "1":
+                            print(f"🎵 [WebRTC] {pc_id} setting up AudioResponseTrack for MID 1")
+                            audio_response = AudioResponseTrack(audio_output_webrtc_queue, pc_id)
+                            pc.addTrack(audio_response)
+                        else:
+                            print(f"⚠️ [WebRTC] {pc_id} unexpected MID: {mid}")
+                        break
             
             @track.on("ended")
             async def on_ended():
-                """Track ended handler - exact copy from aiortc server.py"""
+                """Track ended handler"""
                 print(f"🔌 [WebRTC] {pc_id} track {track.kind} ended")
-                await recorder.stop()
 
-        # Set remote description - exact copy from aiortc server.py
+        # Set remote description
         await pc.setRemoteDescription(offer)
 
-        # Create answer - exact copy from aiortc server.py
+        # Create answer
         answer = await pc.createAnswer()
         await pc.setLocalDescription(answer)
         
-        # Add AudioResponseTrack for streaming audio to frontend
-        audio_response_track = AudioResponseTrack(audio_output_webrtc_queue, pc_id)
-        pc.addTransceiver(audio_response_track, direction="sendonly")
-        print(f"🎵 [WebRTC] {pc_id} audio response streaming started")
-        
         print(f"✅ [WebRTC] {pc_id} created answer")
 
-        # Return response - exact copy from aiortc server.py format
+        # Return response
         return {
             "sdp": pc.localDescription.sdp,
             "type": pc.localDescription.type

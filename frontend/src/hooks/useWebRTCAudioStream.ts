@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback } from 'react';
 import { AudioMessage } from '../types/order';
 
-// Direct TypeScript port of aiortc client.js
+// Clean rewrite based on aiortc client.js
 export function useWebRTCAudioStream() {
   const [isRecording, setIsRecording] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -9,21 +9,10 @@ export function useWebRTCAudioStream() {
   const [transcription, setTranscription] = useState<string>('');
   const [isTTSPlaying, setIsTTSPlaying] = useState(false);
   
-  // WebRTC refs - matching aiortc client.js variable names
+  // WebRTC refs
   const pc = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
   const ttsAudioElement = useRef<HTMLAudioElement | null>(null);
-  
-  // Frame debugging refs
-  const frameStats = useRef({
-    sentFrames: 0,
-    receivedFrames: 0,
-    droppedFrames: 0,
-    lastFrameTime: 0,
-    frameIntervals: [] as number[],
-    bufferUnderruns: 0,
-    bufferOverruns: 0
-  });
 
   const handleAudioMessage = (message: AudioMessage) => {
     console.log('Received audio message:', message);
@@ -47,12 +36,11 @@ export function useWebRTCAudioStream() {
   };
 
   /**
-   * Create peer connection - exact copy of aiortc client.js createPeerConnection()
+   * Create peer connection - based on aiortc client.js
    */
   const createPeerConnection = useCallback((): RTCPeerConnection => {
     const config: RTCConfiguration = {
       iceServers: [],
-      // Enable better audio codecs for higher quality
       rtcpMuxPolicy: 'require',
       bundlePolicy: 'max-bundle'
     };
@@ -89,21 +77,25 @@ export function useWebRTCAudioStream() {
 
     // Handle incoming tracks (audio from backend)
     peerConnection.ontrack = (event) => {
-      console.log('Received track:', event.track.kind);
+      console.log('Received track:', event.track.kind, 'from transceiver:', event.transceiver?.direction);
+      
+      // Log the full event object
+      console.log('🎵 Full track event:', event);
+      console.log('🎵 Event transceiver:', event.transceiver);
+      console.log('🎵 Event track:', event.track);
       
       if (event.track.kind === 'audio') {
         // Check if this is our own microphone track being echoed back
         const isOurTrack = event.track.id === localStream.current?.getAudioTracks()[0]?.id;
-		console.log("OUR LOCAL STREAM", localStream.current?.getAudioTracks());
-		console.log("EVENT", event)
-        const trackDirection = event.receiver?.track?.readyState;
+        const trackDirection = event.transceiver?.direction;
         
         console.log('🎵 Track details:', {
           trackId: event.track.id,
           ourTrackId: localStream.current?.getAudioTracks()[0]?.id,
           isOurTrack: isOurTrack,
-          trackDirection: trackDirection,
-          trackState: event.track.readyState
+          transceiverDirection: trackDirection,
+          trackState: event.track.readyState,
+          transceiverIndex: pc.current?.getTransceivers().findIndex(t => t.receiver.track === event.track) ?? -1
         });
         
         // Skip if this appears to be our own microphone track
@@ -112,9 +104,20 @@ export function useWebRTCAudioStream() {
           setMessages(prev => [...prev, '🎤 Ignored own microphone track']);
           return;
         }
-		        
+        
         // This should be audio from the backend (TTS or other audio)
-        console.log('🎵 Playing audio track from backend');
+        const mid = event.transceiver?.mid;
+        
+        if (mid === "0") {
+          console.log('🎤 Playing audio from MID 0 (processor track)');
+          setMessages(prev => [...prev, '🎤 Processor track received (MID 0)']);
+        } else if (mid === "1") {
+          console.log('🎵 Playing audio from MID 1 (TTS response track)');
+          setMessages(prev => [...prev, '🎵 TTS response track received (MID 1)']);
+        } else {
+          console.log(`🎵 Playing audio from MID ${mid}`);
+          setMessages(prev => [...prev, `🎵 Audio from MID ${mid}`]);
+        }
         
         // Create audio element for backend audio
         const audio = new Audio();
@@ -151,69 +154,23 @@ export function useWebRTCAudioStream() {
       }
     };
 
-    // Monitor connection quality for frame dropping issues
-    const monitorConnectionQuality = async () => {
-      try {
-        const stats = await peerConnection.getStats();
-        let audioStats: RTCStatsReport | null = null;
-        
-        stats.forEach((report) => {
-          if (report.type === 'outbound-rtp' && (report as any).mediaType === 'audio') {
-            audioStats = report;
-          }
-        });
-        
-        if (audioStats) {
-          const packetsLost = (audioStats as any).packetsLost || 0;
-          const packetsSent = (audioStats as any).packetsSent || 0;
-          const jitter = (audioStats as any).jitter || 0;
-          const bytesSent = (audioStats as any).bytesSent || 0;
-          
-          // Calculate packet loss percentage
-          const lossPercentage = packetsSent > 0 ? (packetsLost / packetsSent) * 100 : 0;
-          
-          if (lossPercentage > 1) {
-            console.warn(`🎤 High packet loss: ${lossPercentage.toFixed(2)}% (${packetsLost}/${packetsSent})`);
-            setMessages(prev => [...prev, `⚠️ Packet loss: ${lossPercentage.toFixed(1)}%`]);
-          }
-          
-          if (jitter > 0.02) { // 20ms jitter threshold
-            console.warn(`🎤 High jitter: ${(jitter * 1000).toFixed(1)}ms`);
-            setMessages(prev => [...prev, `⚠️ High jitter: ${(jitter * 1000).toFixed(1)}ms`]);
-          }
-          
-          // Log stats every 5 seconds
-          if (frameStats.current.sentFrames % 50 === 0) {
-            console.log(`🎤 Connection stats: Loss=${lossPercentage.toFixed(2)}%, Jitter=${(jitter * 1000).toFixed(1)}ms, Bytes=${(bytesSent / 1024).toFixed(1)}KB`);
-          }
-        }
-      } catch (error) {
-        console.warn('Could not get connection stats:', error);
-      }
-    };
-    
-    // Monitor connection quality every 2 seconds
-    const qualityInterval = setInterval(monitorConnectionQuality, 2000);
-    
-    // Clean up interval on connection close
-    peerConnection.addEventListener('connectionstatechange', () => {
-      if (peerConnection.connectionState === 'closed' || peerConnection.connectionState === 'failed') {
-        clearInterval(qualityInterval);
-      }
-    });
-
     return peerConnection;
   }, []);
 
   /**
-   * Negotiate - exact copy of aiortc client.js negotiate() function
+   * Negotiate - based on aiortc client.js
    */
-  const negotiate = useCallback((): Promise<void> => {
-    return pc.current!.createOffer().then((offer) => {
-      return pc.current!.setLocalDescription(offer);
-    }).then(() => {
-      // Wait for ICE gathering to complete - exact aiortc pattern
-      return new Promise<void>((resolve) => {
+  const negotiate = useCallback(async (): Promise<void> => {
+    if (!pc.current) return;
+
+    console.log('Starting negotiation...');
+    setMessages(prev => [...prev, 'Starting negotiation...']);
+
+    try {
+      await pc.current.setLocalDescription(await pc.current.createOffer());
+      
+      // Wait for ICE gathering to complete
+      await new Promise<void>((resolve) => {
         if (pc.current!.iceGatheringState === 'complete') {
           resolve();
         } else {
@@ -226,10 +183,13 @@ export function useWebRTCAudioStream() {
           pc.current!.addEventListener('icegatheringstatechange', checkState);
         }
       });
-    }).then(() => {
+
       const offer = pc.current!.localDescription!;
       
-      return fetch('http://localhost:8002/api/webrtc/offer', {
+              console.log('📤 SDP Offer created');
+        setMessages(prev => [...prev, '📤 SDP Offer created']);
+      
+      const response = await fetch('http://localhost:8002/api/webrtc/offer', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -239,18 +199,25 @@ export function useWebRTCAudioStream() {
           type: offer.type,
         }),
       });
-    }).then((response) => {
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      return response.json();
-    }).then((answer) => {
-      return pc.current!.setRemoteDescription(answer);
-    });
+
+              const answer = await response.json();
+        console.log('📥 SDP Answer received');
+        setMessages(prev => [...prev, '📥 SDP Answer received']);
+      
+      await pc.current!.setRemoteDescription(answer);
+    } catch (error) {
+      console.error('Negotiation error:', error);
+      setMessages(prev => [...prev, `Negotiation error: ${(error as any).message}`]);
+      throw error;
+    }
   }, []);
 
   /**
-   * Start - exact copy of aiortc client.js start() function pattern
+   * Start - based on aiortc client.js
    */
   const start = useCallback(async (): Promise<void> => {
     console.log('Starting WebRTC connection...');
@@ -259,7 +226,7 @@ export function useWebRTCAudioStream() {
     // Create peer connection
     pc.current = createPeerConnection();
 
-    // Get user media - audio only for our use case
+    // Get user media - audio only with high quality settings
     const constraints: MediaStreamConstraints = {
       audio: {
         sampleRate: 48000, // Use WebRTC standard rate for better quality
@@ -275,127 +242,36 @@ export function useWebRTCAudioStream() {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       localStream.current = stream;
       
-      // Debug: log actual audio track settings
-      const audioTrack = stream.getAudioTracks()[0];
-      if (audioTrack) {
-        console.log('Actual audio track settings:', audioTrack.getSettings());
-        
-        // Monitor frame dropping and track state
-        audioTrack.onended = () => {
-          console.warn('🎤 Audio track ended unexpectedly');
-          setMessages(prev => [...prev, '❌ Audio track ended']);
-        };
-        
-        audioTrack.onmute = () => {
-          console.warn('🎤 Audio track muted');
-          setMessages(prev => [...prev, '🔇 Audio track muted']);
-        };
-        
-        audioTrack.onunmute = () => {
-          console.log('🎤 Audio track unmuted');
-          setMessages(prev => [...prev, '🔊 Audio track unmuted']);
-        };
-        
-        // Monitor track enabled state
-        setInterval(() => {
-          if (!audioTrack.enabled) {
-            console.warn('🎤 Audio track disabled - this could cause frame dropping');
-            setMessages(prev => [...prev, '⚠️ Audio track disabled']);
-          }
-        }, 1000);
-      }
-
       console.log('Microphone access granted');
       setMessages(prev => [...prev, 'Microphone access granted']);
 
-      // Add tracks to peer connection
-      stream.getTracks().forEach((track) => {
-        const sender = pc.current!.addTrack(track, stream);
-        
-        // Optimize audio encoding parameters for high quality
-        if (track.kind === 'audio') {
-          // Set encoding parameters after a short delay to ensure track is ready
-          setTimeout(async () => {
-            try {
-              const params = sender.getParameters();
-              if (params.encodings && params.encodings.length > 0) {
-                params.encodings[0].maxBitrate = 512_000; // 512 kbps — high for Opus
-                params.encodings[0].priority = "high";     // or "very-high" (not always honored)
-                params.encodings[0].networkPriority = "high";  // hint to the transport layer
-                
-                await sender.setParameters(params);
-                console.log('🎤 Audio encoding parameters optimized:', {
-                  maxBitrate: params.encodings[0].maxBitrate,
-                  priority: params.encodings[0].priority,
-                  networkPriority: params.encodings[0].networkPriority
-                });
-                setMessages(prev => [...prev, '🎤 Audio quality optimized']);
-                
-                // Monitor frame processing
-                const monitorFrames = () => {
-                  frameStats.current.sentFrames++;
-                  const now = Date.now();
-                  
-                  if (frameStats.current.lastFrameTime > 0) {
-                    const interval = now - frameStats.current.lastFrameTime;
-                    frameStats.current.frameIntervals.push(interval);
-                    
-                    // Keep only last 100 intervals
-                    if (frameStats.current.frameIntervals.length > 100) {
-                      frameStats.current.frameIntervals.shift();
-                    }
-                    
-                    // Detect frame drops (intervals > 50ms are suspicious)
-                    if (interval > 50) {
-                      frameStats.current.droppedFrames++;
-                      console.warn(`🎤 Potential frame drop detected: ${interval}ms interval`);
-                      setMessages(prev => [...prev, `⚠️ Frame drop: ${interval}ms`]);
-                    }
-                  }
-                  
-                  frameStats.current.lastFrameTime = now;
-                  
-                  // Log frame stats every 100 frames
-                  if (frameStats.current.sentFrames % 100 === 0) {
-                    const avgInterval = frameStats.current.frameIntervals.reduce((a, b) => a + b, 0) / frameStats.current.frameIntervals.length;
-                    console.log(`🎤 Frame stats: Sent=${frameStats.current.sentFrames}, Dropped=${frameStats.current.droppedFrames}, AvgInterval=${avgInterval.toFixed(1)}ms`);
-                  }
-                };
-                
-                // Monitor frames every 20ms (typical audio frame rate)
-                const frameInterval = setInterval(monitorFrames, 20);
-                
-                // Clean up on connection close
-                pc.current!.addEventListener('connectionstatechange', () => {
-                  if (pc.current!.connectionState === 'closed' || pc.current!.connectionState === 'failed') {
-                    clearInterval(frameInterval);
-                  }
-                });
-              }
-            } catch (error) {
-              console.warn('Could not set audio encoding parameters:', error);
-            }
-          }, 100);
-        }
+      // Create two transceivers: transceiver 0 for microphone, transceiver 1 for TTS audio
+      
+      // Transceiver 0: for sending microphone audio to backend
+      const micTransceiver = pc.current.addTransceiver('audio', {
+        direction: 'sendrecv'
       });
+      console.log('🎤 Added microphone transceiver (index 0, MID:', micTransceiver.mid, ')');
+      setMessages(prev => [...prev, `🎤 Microphone transceiver added (MID: ${micTransceiver.mid})`]);
 
-      // Set preferred codecs for better audio quality after adding tracks
-      pc.current!.getTransceivers().forEach(transceiver => {
-        if (transceiver.receiver.track?.kind === 'audio') {
-          const capabilities = RTCRtpReceiver.getCapabilities('audio');
-          if (capabilities) {
-            // Prefer Opus with 48kHz for highest quality
-            const opusCodec = capabilities.codecs.find(codec => 
-              codec.mimeType === 'audio/opus' && codec.clockRate === 48000
-            );
-            if (opusCodec) {
-              transceiver.setCodecPreferences([opusCodec]);
-              console.log('🎤 Set preferred audio codec: Opus 48kHz');
-              setMessages(prev => [...prev, '🎤 Audio codec optimized: Opus 48kHz']);
-            }
-          }
-        }
+      // Transceiver 1: for receiving TTS audio from backend
+      const ttsTransceiver = pc.current.addTransceiver('audio', {
+        direction: 'sendrecv'
       });
+      console.log('🎵 Added TTS transceiver (index 1, MID:', ttsTransceiver.mid, ')');
+      setMessages(prev => [...prev, `🎵 TTS transceiver added (MID: ${ttsTransceiver.mid})`]);
+
+      // Add the microphone track to transceiver 0
+      const audioTrack = stream.getAudioTracks()[0];
+      if (audioTrack) {
+        micTransceiver.sender.replaceTrack(audioTrack);
+        console.log('🎤 Added microphone track to transceiver 0');
+        setMessages(prev => [...prev, '🎤 Microphone track added to transceiver 0']);
+      }
+
+              // Log transceiver setup
+        console.log('🔍 Transceivers setup complete');
+        setMessages(prev => [...prev, '🔍 Transceivers setup complete']);
 
       // Start negotiation
       await negotiate();
@@ -413,7 +289,7 @@ export function useWebRTCAudioStream() {
   }, [createPeerConnection, negotiate]);
 
   /**
-   * Stop - exact copy of aiortc client.js stop() function
+   * Stop - based on aiortc client.js
    */
   const stop = useCallback(async (): Promise<void> => {
     console.log('Stopping WebRTC connection...');
