@@ -14,6 +14,7 @@ import soundfile as sf
 import scipy.signal
 from aiortc import MediaStreamTrack
 from av import AudioFrame
+import time
 
 
 class AudioProcessorTrack(MediaStreamTrack):
@@ -34,12 +35,43 @@ class AudioProcessorTrack(MediaStreamTrack):
         self.rolling_buffer_samples = 0
         self.max_seconds = 5
         self.max_samples = None  # Will be set after first frame
+        
+        # Frame debugging stats
+        self.frame_stats = {
+            'received_frames': 0,
+            'processed_frames': 0,
+            'dropped_frames': 0,
+            'queue_full_count': 0,
+            'last_frame_time': 0,
+            'frame_intervals': [],
+            'processing_times': []
+        }
+        
         print(f"🎧 [WebRTC] AudioProcessorTrack created for {connection_id}")
     
     async def recv(self):
         """Process audio frames from browser"""
+        frame_start_time = time.time()
         frame = await self.track.recv()
         self.frame_count += 1
+        self.frame_stats['received_frames'] += 1
+        
+        # Track frame timing
+        current_time = time.time()
+        if self.frame_stats['last_frame_time'] > 0:
+            interval = (current_time - self.frame_stats['last_frame_time']) * 1000  # Convert to ms
+            self.frame_stats['frame_intervals'].append(interval)
+            
+            # Keep only last 100 intervals
+            if len(self.frame_stats['frame_intervals']) > 100:
+                self.frame_stats['frame_intervals'].pop(0)
+            
+            # Detect frame drops (intervals > 50ms are suspicious)
+            if interval > 50:
+                self.frame_stats['dropped_frames'] += 1
+                print(f"⚠️ [WebRTC] Potential frame drop detected: {interval:.1f}ms interval")
+        
+        self.frame_stats['last_frame_time'] = current_time
         
         # Convert to numpy array (mono, int16, 48kHz)
         audio_array = frame.to_ndarray().flatten()
@@ -72,13 +104,33 @@ class AudioProcessorTrack(MediaStreamTrack):
         
         # Queue for STT processing (send 16kHz float32 mono)
         try:
+            # Check queue size before putting
+            queue_size = self.audio_queue.qsize()
+            if queue_size > 50:  # Queue getting full
+                self.frame_stats['queue_full_count'] += 1
+                print(f"⚠️ [WebRTC] Queue getting full: {queue_size} items")
+            
             self.audio_queue.put_nowait(audio_array_16k)
+            self.frame_stats['processed_frames'] += 1
+            
+            # Track processing time
+            processing_time = (time.time() - frame_start_time) * 1000  # Convert to ms
+            self.frame_stats['processing_times'].append(processing_time)
+            
+            # Keep only last 100 processing times
+            if len(self.frame_stats['processing_times']) > 100:
+                self.frame_stats['processing_times'].pop(0)
+            
             if self.frame_count <= 3:
-                print(f"🎤 [WebRTC] Frame {self.frame_count}: {audio_array_16k.shape} samples, max: {np.max(np.abs(audio_array_16k)):.4f}")
+                print(f"🎤 [WebRTC] Frame {self.frame_count}: {audio_array_16k.shape} samples, max: {np.max(np.abs(audio_array_16k)):.4f}, proc_time: {processing_time:.1f}ms")
             elif self.frame_count % 50 == 0:
-                print(f"🎤 [WebRTC] Processed {self.frame_count} frames")
+                avg_processing = sum(self.frame_stats['processing_times']) / len(self.frame_stats['processing_times'])
+                avg_interval = sum(self.frame_stats['frame_intervals']) / len(self.frame_stats['frame_intervals']) if self.frame_stats['frame_intervals'] else 0
+                print(f"🎤 [WebRTC] Processed {self.frame_count} frames - Avg proc: {avg_processing:.1f}ms, Avg interval: {avg_interval:.1f}ms, Dropped: {self.frame_stats['dropped_frames']}")
+                
         except Exception as e:
             print(f"❌ [WebRTC] Queue error: {e}")
+            self.frame_stats['dropped_frames'] += 1
         
         # Save last 5 seconds to file every 200 frames (for testing)
         if self.frame_count % 200 == 0:

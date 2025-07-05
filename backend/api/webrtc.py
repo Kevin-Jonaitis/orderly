@@ -7,7 +7,6 @@ import asyncio
 import json
 import multiprocessing
 import time
-from typing import Optional
 
 import numpy as np
 from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack
@@ -28,7 +27,7 @@ pcs = set()
 
 
 
-def setup_webrtc_routes(app: FastAPI, audio_queue: Optional[multiprocessing.Queue] = None, audio_output_webrtc_queue: Optional[multiprocessing.Queue] = None):
+def setup_webrtc_routes(app: FastAPI, audio_queue: multiprocessing.Queue, audio_output_webrtc_queue: multiprocessing.Queue):
     """Set up WebRTC routes - direct port of aiortc server.py for FastAPI"""
     
     @app.post("/api/webrtc/offer")
@@ -46,10 +45,6 @@ def setup_webrtc_routes(app: FastAPI, audio_queue: Optional[multiprocessing.Queu
         pcs.add(pc)
         
         print(f"🔧 [WebRTC] Created {pc_id}")
-        
-        # Use provided audio queues or create blackholes
-        current_audio_queue = audio_queue or multiprocessing.Queue(maxsize=1000)
-        current_audio_output_webrtc_queue = audio_output_webrtc_queue or multiprocessing.Queue(maxsize=1000)
         
         # Set up recorder equivalent (our audio queue)
         recorder = MediaBlackhole()  # We don't record to file, just process
@@ -72,7 +67,7 @@ def setup_webrtc_routes(app: FastAPI, audio_queue: Optional[multiprocessing.Queu
             
             if track.kind == "audio":
                 # Create audio processor track (replaces player.audio from server.py)
-                audio_processor = AudioProcessorTrack(track, current_audio_queue, pc_id)
+                audio_processor = AudioProcessorTrack(track, audio_queue, pc_id)
                 pc.addTrack(audio_processor)
                 
                 print(f"✅ [WebRTC] {pc_id} audio processing started")
@@ -91,10 +86,9 @@ def setup_webrtc_routes(app: FastAPI, audio_queue: Optional[multiprocessing.Queu
         await pc.setLocalDescription(answer)
         
         # Add AudioResponseTrack for streaming audio to frontend
-        if current_audio_output_webrtc_queue is not None:
-            audio_response_track = AudioResponseTrack(current_audio_output_webrtc_queue, pc_id)
-            pc.addTransceiver(audio_response_track, direction="sendonly")
-            print(f"🎵 [WebRTC] {pc_id} audio response streaming started")
+        audio_response_track = AudioResponseTrack(audio_output_webrtc_queue, pc_id)
+        pc.addTransceiver(audio_response_track, direction="sendonly")
+        print(f"🎵 [WebRTC] {pc_id} audio response streaming started")
         
         print(f"✅ [WebRTC] {pc_id} created answer")
 
