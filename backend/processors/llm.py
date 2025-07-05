@@ -108,7 +108,7 @@ class LLMReasoner:
 
         # Log initial GPU memory usage
         self._log_gpu_memory("LLM_INIT")
-        
+
         # Order processing instructions and menu context
         self.instructions_and_menu = """<|user|>
 You are a fast-food order taker. Your job is to update the user's order based on their request.

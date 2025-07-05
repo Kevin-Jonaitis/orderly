@@ -124,8 +124,6 @@ class AudioResponseTrack(MediaStreamTrack):
             # Try to get processed audio from queue
             try:
                 # Get audio data from queue (should be WebRTC-ready int16 data)
-                if self.audio_output_webrtc_queue.qsize() > 0:
-                    print(f"🎵 [AudioResponseTrack] Queue size!!!!!!!!!!!!!!!!!!!!!!!!!!: {self.audio_output_webrtc_queue.qsize()}")
                 audio_data = self.audio_output_webrtc_queue.get_nowait()
                 
                 # Track audio levels

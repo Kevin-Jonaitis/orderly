@@ -93,7 +93,6 @@ class AudioProcessor(Process):
                 # Convert to int16
                 frame_int16 = (frame_audio_48k * 32767).astype(np.int16)
                 
-                print(f"🎵 [AudioProcessor] Sending frame: {len(frame_int16)} samples, max: {np.max(np.abs(frame_int16))}")
                 
                 # Send single frame to WebRTC queue
                 try:

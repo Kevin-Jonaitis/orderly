@@ -65,7 +65,7 @@ class RealTimeSTTProcessor(BaseSTTProcessor):
                     self.model.change_decoding_strategy(decoding_cfg)
             
             # Model setup - GPU only
-            self.model = self.model.cuda()
+            self.model = self.model.to('cuda')
             self.model.eval()
             
             # Store buffer class
