@@ -15,7 +15,7 @@ class AudioProcessor(Process):
     test_tts_audio_minimal.py structure for optimal performance.
     """
     
-    def __init__(self, audio_queue, first_audio_chunk_timestamp, audio_output_webrtc_queue=None):
+    def __init__(self, audio_queue, first_audio_chunk_timestamp, audio_output_webrtc_queue):
         super().__init__(name="AudioProcess")
         self.audio_queue = audio_queue  # multiprocessing.Queue
         self.first_audio_chunk_timestamp = first_audio_chunk_timestamp
@@ -24,7 +24,9 @@ class AudioProcessor(Process):
         # Audio processing parameters for WebRTC
         self.tts_sample_rate = 24000  # TTS output rate
         self.webrtc_sample_rate = 48000  # WebRTC expected rate
-        self.audio_buffer = np.array([], dtype=np.float32)
+        self.webrtc_frame_duration = 0.02  # 20ms frames
+        self.webrtc_samples_per_frame = int(self.webrtc_sample_rate * self.webrtc_frame_duration)  # 960 samples
+        self.audio_buffer = np.array([], dtype=np.float32)  # Buffer to accumulate audio chunks
         
     # Debug chunk loading removed - handled externally by test scripts or TTSProcess
     
@@ -42,8 +44,8 @@ class AudioProcessor(Process):
         try:
             while True:
                 try:
-                    # Get audio chunk from TTS
-                    audio_chunk = self.audio_queue.get(timeout=1.0)
+                    # Get audio chunk from TTS (blocking)
+                    audio_chunk = self.audio_queue.get()
                     
                     # Record first audio timing
                     if not hasattr(self, '_first_audio_received'):
@@ -51,12 +53,8 @@ class AudioProcessor(Process):
                         self._first_audio_received = True
                     
                     # Process audio for WebRTC streaming
-                    if self.audio_output_webrtc_queue is not None:
-                        self._process_audio_for_webrtc(audio_chunk)
+                    self._process_audio_for_webrtc(audio_chunk)
                     
-                except queue.Empty:
-                    # No audio available - continue waiting
-                    continue
                 except Exception as e:
                     print(f"❌ [AudioProcessor] Error in WebRTC audio processing: {e}")
                     break
@@ -76,18 +74,19 @@ class AudioProcessor(Process):
             # Add to buffer
             self.audio_buffer = np.concatenate([self.audio_buffer, audio_chunk])
             
-            # Process when we have enough audio for a WebRTC frame
-            webrtc_frame_samples = int(self.webrtc_sample_rate * 0.02)  # 20ms frame
-            
-            while len(self.audio_buffer) >= webrtc_frame_samples:
-                # Extract frame
-                frame_audio = self.audio_buffer[:webrtc_frame_samples]
-                self.audio_buffer = self.audio_buffer[webrtc_frame_samples:]
+            # Process complete frames from buffer
+            while len(self.audio_buffer) >= self.webrtc_samples_per_frame:
+                # Extract exactly one frame worth of audio (960 samples at 24kHz)
+                frame_audio = self.audio_buffer[:self.webrtc_samples_per_frame]
+                # Remove the processed audio from buffer
+                self.audio_buffer = self.audio_buffer[self.webrtc_samples_per_frame:]
                 
                 # Resample from 24kHz to 48kHz
                 import scipy.signal
-                frame_audio_48k = scipy.signal.resample(frame_audio, 
-                                                      int(len(frame_audio) * self.webrtc_sample_rate / self.tts_sample_rate))
+                # 960 samples at 24kHz = 40ms, so we need 1920 samples at 48kHz for the same duration
+                frame_audio_48k = scipy.signal.resample(frame_audio, len(frame_audio) * 2)
+                # But we need exactly 960 samples for WebRTC, so take the first 960
+                frame_audio_48k = frame_audio_48k[:self.webrtc_samples_per_frame]
                 
                 # Convert to int16 for WebRTC
                 frame_audio_int16 = (frame_audio_48k * 32767).astype(np.int16)
