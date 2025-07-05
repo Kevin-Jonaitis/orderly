@@ -109,34 +109,110 @@ export function useWebRTCAudioStream() {
         const mid = event.transceiver?.mid;
         
         if (mid === "0") {
-          console.log('🎤 Playing audio from MID 0 (processor track)');
-          setMessages(prev => [...prev, '🎤 Processor track received (MID 0)']);
+          console.log('🎤 Ignoring audio from MID 0 (processor track)');
+          setMessages(prev => [...prev, '🎤 Processor track received (MID 0) - not playing']);
+          return; // Don't play audio from MID 0
         } else if (mid === "1") {
           console.log('🎵 Playing audio from MID 1 (TTS response track)');
+          console.log('🎵 Track details:', {
+            id: event.track.id,
+            kind: event.track.kind,
+            readyState: event.track.readyState,
+            enabled: event.track.enabled
+          });
           setMessages(prev => [...prev, '🎵 TTS response track received (MID 1)']);
         } else {
-          console.log(`🎵 Playing audio from MID ${mid}`);
-          setMessages(prev => [...prev, `🎵 Audio from MID ${mid}`]);
+          console.log(`🎵 Ignoring audio from MID ${mid}`);
+          setMessages(prev => [...prev, `🎵 Audio from MID ${mid} - not playing`]);
+          return; // Don't play audio from unknown MID
         }
         
-        // Create audio element for backend audio
+        // Create audio element for backend audio (only for MID 1)
         const audio = new Audio();
         audio.srcObject = new MediaStream([event.track]);
         audio.autoplay = true;
         audio.volume = 0.8;
         
+        // Debug: Log audio element details
+        console.log('🎵 Audio element created:', {
+          srcObject: audio.srcObject,
+          autoplay: audio.autoplay,
+          volume: audio.volume,
+          readyState: audio.readyState,
+          paused: audio.paused,
+          currentTime: audio.currentTime,
+          duration: audio.duration
+        });
+        
+        // Debug: Log WebRTC stats to see if audio is flowing
+        setTimeout(() => {
+          pc.current?.getStats().then(stats => {
+            console.log('🎵 WebRTC Stats:');
+            stats.forEach(report => {
+              if (report.type === 'inbound-rtp' && report.kind === 'audio') {
+                console.log('🎵 Audio RTP Stats:', {
+                  packetsReceived: report.packetsReceived,
+                  bytesReceived: report.bytesReceived,
+                  packetsLost: report.packetsLost,
+                  jitter: report.jitter,
+                  timestamp: report.timestamp
+                });
+              }
+            });
+          });
+        }, 2000);
+        
         // Store reference to prevent garbage collection
         ttsAudioElement.current = audio;
         
-        // Track audio playing state
+        // Add event listeners to debug audio playback
+        audio.onloadstart = () => {
+          console.log('🎵 Audio: loadstart event');
+          setMessages(prev => [...prev, '🎵 Audio: loadstart']);
+        };
+        
+        audio.oncanplay = () => {
+          console.log('🎵 Audio: canplay event');
+          setMessages(prev => [...prev, '🎵 Audio: canplay']);
+        };
+        
         audio.onplay = () => {
+          console.log('🎵 Audio: play event');
           setIsTTSPlaying(true);
-          setMessages(prev => [...prev, '🎵 Backend Audio: Playing']);
+          setMessages(prev => [...prev, '🎵 Audio: playing']);
         };
         
         audio.onpause = () => {
+          console.log('🎵 Audio: pause event');
           setIsTTSPlaying(false);
-          setMessages(prev => [...prev, '🎵 Backend Audio: Paused']);
+          setMessages(prev => [...prev, '🎵 Audio: paused']);
+        };
+        
+        audio.onended = () => {
+          console.log('🎵 Audio: ended event');
+          setIsTTSPlaying(false);
+          setMessages(prev => [...prev, '🎵 Audio: ended']);
+        };
+        
+        audio.onerror = (e) => {
+          console.error('🎵 Audio: error event', e);
+          setMessages(prev => [...prev, '🎵 Audio: error']);
+        };
+        
+        // Add track event listeners to monitor data flow
+        event.track.onended = () => {
+          console.log('🎵 Track ended');
+          setMessages(prev => [...prev, '🎵 Track ended']);
+        };
+        
+        event.track.onmute = () => {
+          console.log('🎵 Track muted');
+          setMessages(prev => [...prev, '🎵 Track muted']);
+        };
+        
+        event.track.onunmute = () => {
+          console.log('🎵 Track unmuted');
+          setMessages(prev => [...prev, '🎵 Track unmuted']);
         };
         
         audio.onended = () => {

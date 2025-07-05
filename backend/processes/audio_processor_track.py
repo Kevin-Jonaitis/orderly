@@ -108,6 +108,7 @@ class AudioProcessorTrack(MediaStreamTrack):
             queue_size = self.audio_queue.qsize()
             if queue_size > 50:  # Queue getting full
                 self.frame_stats['queue_full_count'] += 1
+				# THIS IS GOOD STATS, DO NOT REMOVE
                 print(f"⚠️ [WebRTC] Queue getting full: {queue_size} items")
             
             self.audio_queue.put_nowait(audio_array_16k)

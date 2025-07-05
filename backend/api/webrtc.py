@@ -94,6 +94,16 @@ def setup_webrtc_routes(app: FastAPI, audio_queue: multiprocessing.Queue, audio_
         await pc.setLocalDescription(answer)
         
         print(f"✅ [WebRTC] {pc_id} created answer")
+        
+        # Debug: Check final transceiver state after answer
+        transceivers = pc.getTransceivers()
+        print(f"🎵 [WebRTC] {pc_id} FINAL transceivers after answer: {len(transceivers)}")
+        for i, transceiver in enumerate(transceivers):
+            print(f"🎵 [WebRTC] {pc_id} FINAL transceiver {i}: direction={transceiver.direction}, currentDirection={transceiver.currentDirection}, mid={transceiver.mid}")
+            if transceiver.sender.track:
+                print(f"🎵 [WebRTC] {pc_id} FINAL transceiver {i} sender track: {transceiver.sender.track.id}, readyState={transceiver.sender.track.readyState}")
+            if transceiver.receiver.track:
+                print(f"🎵 [WebRTC] {pc_id} FINAL transceiver {i} receiver track: {transceiver.receiver.track.id}, readyState={transceiver.receiver.track.readyState}")
 
         # Return response
         return {
