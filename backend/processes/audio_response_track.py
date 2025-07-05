@@ -41,6 +41,8 @@ class AudioResponseTrack(MediaStreamTrack):
         self._start = None
         self._timestamp = 0
         
+
+        
         # Frame debugging stats
         self.frame_stats = {
             'sent_frames': 0,
@@ -110,6 +112,8 @@ class AudioResponseTrack(MediaStreamTrack):
                 # Detect frame timing issues (intervals > 30ms are suspicious for 20ms frames)
                 if interval > 30:
                     print(f"⚠️ [AudioResponseTrack] Frame timing issue: {interval:.1f}ms interval (expected ~20ms)")
+                    # Add more debug info
+                    print(f"🎵 [AudioResponseTrack] Queue size: {self.audio_output_webrtc_queue.qsize()}, Frame count: {self.frame_count}")
             
             self.frame_stats['last_frame_time'] = current_time
             
