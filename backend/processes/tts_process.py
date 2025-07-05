@@ -20,7 +20,7 @@ class TTSProcess(Process):
         self.audio_queue = audio_queue  # multiprocessing.Queue to AudioProcessor
         self.tts = None
         self.first_audio_chunk_timestamp = first_audio_chunk_timestamp
-        self.debug_mode = True  # Set to False to use real TTS generation
+        self.debug_mode = False  # Set to False to use real TTS generation
         self.prerecorded_chunks = None  # Will load during init
     
     def _load_debug_chunks(self):
@@ -101,13 +101,21 @@ class TTSProcess(Process):
                     
                 else:
                     # Production path: real TTS generation
+                    tts_start_time = time_module.time()
                     first_chunk = True
-                    print(f"🎵 [TTS] GENERATION STARTED")
+                    print(f"🎵 [TTS] GENERATION STARTED at {tts_start_time:.3f}")
                     
                     debug_audio_chunks = []
+                    token_start_time = None
+                    first_audio_time = None
                     
                     for result in self.tts.tts_streaming(text, "tara", save_file=None):
                         sample_rate, audio_array, chunk_count = result
+                        
+                        # Track first audio chunk timing
+                        if first_audio_time is None:
+                            first_audio_time = time_module.time()
+                            print(f"🎵 [TTS] FIRST AUDIO CHUNK: {first_audio_time:.3f} ({(first_audio_time - tts_start_time)*1000:.1f}ms after start)")
                         
                         # Collect for debug
                         debug_audio_chunks.append(audio_array.copy())
@@ -143,7 +151,14 @@ class TTSProcess(Process):
                             padded_audio = np.pad(remaining_audio, (0, chunk_size - remaining_samples), mode='constant')
                             self.audio_queue.put(padded_audio)
                     
-                    print("🎵 [TTS] Generation complete")
+                    tts_end_time = time_module.time()
+                    total_tts_time = (tts_end_time - tts_start_time) * 1000
+                    print(f"🎵 [TTS] Generation complete at {tts_end_time:.3f}")
+                    print(f"🎵 [TTS] Total TTS time: {total_tts_time:.1f}ms")
+                    
+                    if first_audio_time:
+                        time_to_first_audio = (first_audio_time - tts_start_time) * 1000
+                        print(f"🎵 [TTS] Time to first audio: {time_to_first_audio:.1f}ms")
                     
                     # Save debug audio
                     if debug_audio_chunks:
