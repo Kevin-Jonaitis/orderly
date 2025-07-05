@@ -20,13 +20,15 @@ from av import AudioFrame
 
 # Import the AudioProcessorTrack from its new location
 from processes.audio_processor_track import AudioProcessorTrack
+# Import the AudioResponseTrack for outgoing audio
+from processes.audio_response_track import AudioResponseTrack
 
 # Global state - exact copy from aiortc server.py
 pcs = set()
 
 
 
-def setup_webrtc_routes(app: FastAPI, audio_queue: Optional[multiprocessing.Queue] = None):
+def setup_webrtc_routes(app: FastAPI, audio_queue: Optional[multiprocessing.Queue] = None, audio_output_webrtc_queue: Optional[multiprocessing.Queue] = None):
     """Set up WebRTC routes - direct port of aiortc server.py for FastAPI"""
     
     @app.post("/api/webrtc/offer")
@@ -45,8 +47,9 @@ def setup_webrtc_routes(app: FastAPI, audio_queue: Optional[multiprocessing.Queu
         
         print(f"🔧 [WebRTC] Created {pc_id}")
         
-        # Use provided audio queue or create blackhole
+        # Use provided audio queues or create blackholes
         current_audio_queue = audio_queue or multiprocessing.Queue(maxsize=1000)
+        current_audio_output_webrtc_queue = audio_output_webrtc_queue or multiprocessing.Queue(maxsize=1000)
         
         # Set up recorder equivalent (our audio queue)
         recorder = MediaBlackhole()  # We don't record to file, just process
@@ -86,6 +89,12 @@ def setup_webrtc_routes(app: FastAPI, audio_queue: Optional[multiprocessing.Queu
         # Create answer - exact copy from aiortc server.py
         answer = await pc.createAnswer()
         await pc.setLocalDescription(answer)
+        
+        # Add AudioResponseTrack for streaming audio to frontend
+        if current_audio_output_webrtc_queue is not None:
+            audio_response_track = AudioResponseTrack(current_audio_output_webrtc_queue, pc_id)
+            pc.addTransceiver(audio_response_track, direction="sendonly")
+            print(f"🎵 [WebRTC] {pc_id} audio response streaming started")
         
         print(f"✅ [WebRTC] {pc_id} created answer")
 

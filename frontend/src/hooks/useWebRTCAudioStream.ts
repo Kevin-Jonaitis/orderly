@@ -7,10 +7,12 @@ export function useWebRTCAudioStream() {
   const [isConnected, setIsConnected] = useState(false);
   const [messages, setMessages] = useState<string[]>([]);
   const [transcription, setTranscription] = useState<string>('');
+  const [isTTSPlaying, setIsTTSPlaying] = useState(false);
   
   // WebRTC refs - matching aiortc client.js variable names
   const pc = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
+  const ttsAudioElement = useRef<HTMLAudioElement | null>(null);
 
   const handleAudioMessage = (message: AudioMessage) => {
     console.log('Received audio message:', message);
@@ -38,7 +40,10 @@ export function useWebRTCAudioStream() {
    */
   const createPeerConnection = useCallback((): RTCPeerConnection => {
     const config: RTCConfiguration = {
-      iceServers: []
+      iceServers: [],
+      // Enable better audio codecs for higher quality
+      rtcpMuxPolicy: 'require',
+      bundlePolicy: 'max-bundle'
     };
 
     const peerConnection = new RTCPeerConnection(config);
@@ -70,6 +75,49 @@ export function useWebRTCAudioStream() {
     peerConnection.addEventListener('signalingstatechange', () => {
       console.log('Signaling state:', peerConnection.signalingState);
     });
+
+    // Handle incoming tracks (audio from backend)
+    peerConnection.ontrack = (event) => {
+      console.log('Received track:', event.track.kind);
+      
+      if (event.track.kind === 'audio') {
+        // This should be audio from the backend (TTS or other audio)
+        console.log('🎵 Playing audio track from backend');
+        
+        // Create audio element for backend audio
+        const audio = new Audio();
+        audio.srcObject = new MediaStream([event.track]);
+        audio.autoplay = true;
+        audio.volume = 0.8;
+        
+        // Store reference to prevent garbage collection
+        ttsAudioElement.current = audio;
+        
+        // Track audio playing state
+        audio.onplay = () => {
+          setIsTTSPlaying(true);
+          setMessages(prev => [...prev, '🎵 Backend Audio: Playing']);
+        };
+        
+        audio.onpause = () => {
+          setIsTTSPlaying(false);
+          setMessages(prev => [...prev, '🎵 Backend Audio: Paused']);
+        };
+        
+        audio.onended = () => {
+          setIsTTSPlaying(false);
+          setMessages(prev => [...prev, '🎵 Backend Audio: Ended']);
+        };
+        
+        audio.onerror = (error) => {
+          console.error('Backend audio error:', error);
+          setMessages(prev => [...prev, '❌ Backend Audio: Error']);
+        };
+        
+        console.log('🎵 Backend audio element created and configured');
+        setMessages(prev => [...prev, '🎵 Backend Audio: Ready to play']);
+      }
+    };
 
     return peerConnection;
   }, []);
@@ -131,7 +179,7 @@ export function useWebRTCAudioStream() {
     // Get user media - audio only for our use case
     const constraints: MediaStreamConstraints = {
       audio: {
-        sampleRate: 16000, // Match backend and NeMo STT sample rate
+        sampleRate: 48000, // Use WebRTC standard rate for better quality
         channelCount: 1, // Mono audio
         echoCancellation: true,
         noiseSuppression: true,
@@ -155,7 +203,50 @@ export function useWebRTCAudioStream() {
 
       // Add tracks to peer connection
       stream.getTracks().forEach((track) => {
-        pc.current!.addTrack(track, stream);
+        const sender = pc.current!.addTrack(track, stream);
+        
+        // Optimize audio encoding parameters for high quality
+        if (track.kind === 'audio') {
+          // Set encoding parameters after a short delay to ensure track is ready
+          setTimeout(async () => {
+            try {
+              const params = sender.getParameters();
+              if (params.encodings && params.encodings.length > 0) {
+                params.encodings[0].maxBitrate = 512_000; // 512 kbps — high for Opus
+                params.encodings[0].priority = "high";     // or "very-high" (not always honored)
+                params.encodings[0].networkPriority = "high";  // hint to the transport layer
+                
+                await sender.setParameters(params);
+                console.log('🎤 Audio encoding parameters optimized:', {
+                  maxBitrate: params.encodings[0].maxBitrate,
+                  priority: params.encodings[0].priority,
+                  networkPriority: params.encodings[0].networkPriority
+                });
+                setMessages(prev => [...prev, '🎤 Audio quality optimized']);
+              }
+            } catch (error) {
+              console.warn('Could not set audio encoding parameters:', error);
+            }
+          }, 100);
+        }
+      });
+
+      // Set preferred codecs for better audio quality after adding tracks
+      pc.current!.getTransceivers().forEach(transceiver => {
+        if (transceiver.receiver.track?.kind === 'audio') {
+          const capabilities = RTCRtpReceiver.getCapabilities('audio');
+          if (capabilities) {
+            // Prefer Opus with 48kHz for highest quality
+            const opusCodec = capabilities.codecs.find(codec => 
+              codec.mimeType === 'audio/opus' && codec.clockRate === 48000
+            );
+            if (opusCodec) {
+              transceiver.setCodecPreferences([opusCodec]);
+              console.log('🎤 Set preferred audio codec: Opus 48kHz');
+              setMessages(prev => [...prev, '🎤 Audio codec optimized: Opus 48kHz']);
+            }
+          }
+        }
       });
 
       // Start negotiation
@@ -223,6 +314,7 @@ export function useWebRTCAudioStream() {
   return {
     isRecording,
     isConnected,
+    isTTSPlaying,
     messages,
     transcription,
     startRecording: start,

@@ -6,6 +6,7 @@ export function WebRTCAudioRecorder() {
   const {
     isRecording,
     isConnected,
+    isTTSPlaying,
     messages,
     transcription,
     toggleRecording,
@@ -31,12 +32,23 @@ export function WebRTCAudioRecorder() {
     }
   };
 
+  const getAudioStatusBadge = () => {
+    if (isTTSPlaying) {
+      return <Badge bg="info" className="ms-2">🎵 Audio Playing</Badge>;
+    } else {
+      return <Badge bg="light" text="dark" className="ms-2">🎵 Audio Ready</Badge>;
+    }
+  };
+
   return (
     <Card>
       <Card.Header>
         <div className="d-flex justify-content-between align-items-center">
           <h5 className="mb-0">🎤 WebRTC Audio Recorder</h5>
-          {getStatusBadge()}
+          <div>
+            {getStatusBadge()}
+            {getAudioStatusBadge()}
+          </div>
         </div>
       </Card.Header>
       
@@ -93,7 +105,7 @@ export function WebRTCAudioRecorder() {
           <small className="text-muted">
             <strong>WebRTC Audio Streaming:</strong> Real-time audio to AI backend
             <br />
-            • Browser microphone → WebRTC → Speech-to-Text → LLM → Text-to-Speech
+            • Browser microphone → WebRTC → Speech-to-Text → LLM → Text-to-Speech → WebRTC → Browser
           </small>
         </div>
       </Card.Body>

@@ -83,13 +83,13 @@ def keyboard_listener(manual_speech_end_timestamp, manual_audio_heard_timestamp,
         print("⌨️  Manual timing stopped")
         pass
 
-def start_webrtc_server(webrtc_audio_queue):
+def start_webrtc_server(webrtc_audio_queue, audio_output_webrtc_queue):
     """Start WebRTC server in a separate thread"""
     def run_server():
         app = FastAPI(title="WebRTC Audio Server")
         
-        # Setup WebRTC routes with the audio queue
-        setup_webrtc_routes(app, webrtc_audio_queue)
+        # Setup WebRTC routes with both audio queues
+        setup_webrtc_routes(app, webrtc_audio_queue, audio_output_webrtc_queue)
         
         # Configure CORS for browser access
         from fastapi.middleware.cors import CORSMiddleware
@@ -127,6 +127,7 @@ def main():
     tts_text_queue = multiprocessing.Queue(maxsize=10)  # LLM → TTS
     audio_queue = multiprocessing.Queue(maxsize=100)  # TTS → AudioProcessor
     webrtc_audio_queue = multiprocessing.Queue(maxsize=1000)  # WebRTC → STT
+    audio_output_webrtc_queue = multiprocessing.Queue(maxsize=1000)  # AudioProcessor → WebRTC
     
     # Create 7 simple timing variables
     manual_speech_end_timestamp = multiprocessing.Value('d', 0.0)
@@ -141,13 +142,13 @@ def main():
     manual_event_count = multiprocessing.Value('i', 0)         # Event counter (0,1,2)
     
     # Start WebRTC server
-    webrtc_thread = start_webrtc_server(webrtc_audio_queue)
+    webrtc_thread = start_webrtc_server(webrtc_audio_queue, audio_output_webrtc_queue)
     
     # Start processes
     stt_process = STTAudioProcess(text_queue, webrtc_audio_queue, last_text_change_timestamp)
     llm_process = LLMProcess(text_queue, tts_text_queue, llm_start_timestamp, llm_send_to_tts_timestamp, llm_complete_timestamp)
     tts_process = TTSProcess(tts_text_queue, audio_queue, first_audio_chunk_timestamp)
-    audio_process = AudioProcessor(audio_queue, first_audio_chunk_timestamp, use_blocking_audio=True)
+    audio_process = AudioProcessor(audio_queue, first_audio_chunk_timestamp, audio_output_webrtc_queue)
     
     # Start keyboard listener thread for manual timing
     keyboard_thread = threading.Thread(target=keyboard_listener, 
