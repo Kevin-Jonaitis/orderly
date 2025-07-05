@@ -72,13 +72,17 @@ class AudioResponseTrack(MediaStreamTrack):
         try:
             # Timing control - like base AudioStreamTrack
             if self._start is not None:
-                self._timestamp += self.samples_per_frame
-                wait = self._start + (self._timestamp / self.webrtc_sample_rate) - time.time()
+                # Calculate expected time for this frame
+                expected_time = self._start + (self.frame_count * 0.02)  # 20ms per frame
+                wait = expected_time - time.time()
                 if wait > 0:
                     await asyncio.sleep(wait)
             else:
                 self._start = time.time()
                 self._timestamp = 0
+            
+            # Update timestamp for this frame (960 samples at 48kHz = 20ms)
+            self._timestamp += self.samples_per_frame
             
             frame_start_time = time.time()
             self.frame_count += 1

@@ -5,6 +5,7 @@ import multiprocessing
 from multiprocessing import Process
 import numpy as np
 import queue
+import scipy.signal
 
 
 class AudioProcessor(Process):
@@ -27,6 +28,8 @@ class AudioProcessor(Process):
         self.webrtc_frame_duration = 0.02  # 20ms frames
         self.webrtc_samples_per_frame = int(self.webrtc_sample_rate * self.webrtc_frame_duration)  # 960 samples
         self.tts_samples_per_frame = int(self.tts_sample_rate * self.webrtc_frame_duration)  # 480 samples at 24kHz
+        
+        # Audio buffer for frame processing
         self.audio_buffer = np.array([], dtype=np.float32)  # Buffer to accumulate audio chunks
         
     # Debug chunk loading removed - handled externally by test scripts or TTSProcess
@@ -66,36 +69,44 @@ class AudioProcessor(Process):
             traceback.print_exc()
     
     def _process_audio_for_webrtc(self, audio_chunk):
-        """Process audio chunk for WebRTC streaming"""
+        """Process audio chunk for WebRTC streaming using nearest neighbor upsampling"""
         try:
             # Ensure audio_chunk is 1D (mono)
             if len(audio_chunk.shape) > 1:
                 audio_chunk = audio_chunk.flatten()
             
+            print(f"🎵 [AudioProcessor] Received chunk: {len(audio_chunk)} samples, buffer: {len(self.audio_buffer)} samples")
+            
             # Add to buffer
             self.audio_buffer = np.concatenate([self.audio_buffer, audio_chunk])
             
             # Process complete frames from buffer
+            frames_sent = 0
             while len(self.audio_buffer) >= self.tts_samples_per_frame:
                 # Extract exactly one frame worth of audio (480 samples at 24kHz = 20ms)
                 frame_audio = self.audio_buffer[:self.tts_samples_per_frame]
-                # Remove the processed audio from buffer
                 self.audio_buffer = self.audio_buffer[self.tts_samples_per_frame:]
                 
-                # Resample from 24kHz to 48kHz using polyphase resampling
-                import scipy.signal
-                # 480 samples at 24kHz = 20ms, so we need 960 samples at 48kHz for the same duration
-                # Use polyphase resampling for cleaner results
-                frame_audio_48k = scipy.signal.resample_poly(frame_audio, 2, 1)
+                # Upsample from 24kHz to 48kHz using nearest neighbor (simple duplication)
+                frame_audio_48k = np.repeat(frame_audio, 2)
+                
+                # Convert to int16
+                frame_int16 = (frame_audio_48k * 32767).astype(np.int16)
+                
+                print(f"🎵 [AudioProcessor] Sending frame: {len(frame_int16)} samples, max: {np.max(np.abs(frame_int16))}")
                 
                 # Send single frame to WebRTC queue
                 try:
-                    frame_int16 = (frame_audio_48k * 32767).astype(np.int16)
                     self.audio_output_webrtc_queue.put_nowait(frame_int16)
+                    frames_sent += 1
                 except queue.Full:
-                    # Queue is full, skip this frame
                     print("⚠️ [AudioProcessor] WebRTC queue full, skipping frame")
-                    
+            
+            if frames_sent > 0:
+                print(f"🎵 [AudioProcessor] Sent {frames_sent} frames, buffer remaining: {len(self.audio_buffer)} samples")
+                
         except Exception as e:
             print(f"❌ [AudioProcessor] Error processing audio for WebRTC: {e}")
+            import traceback
+            traceback.print_exc()
     
