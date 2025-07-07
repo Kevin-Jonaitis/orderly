@@ -22,6 +22,7 @@ from processors.stt import RealTimeSTTProcessor
 SAMPLE_RATE = 16000  # Match frontend and NeMo STT sample rate
 CHUNK_DURATION_MS = 80  # 80ms chunks for real-time processing
 CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION_MS / 1000)  # 1280 samples at 16kHz
+TEXT_STABILIZATION_DELAY_MS = 200  # Wait 200ms for audio to stabilize
 
 def record_mic_buffer(mic_record_buffer, audio_data, last_record_time, sample_rate=16000, record_seconds=5, record_filename="debug_mic_input.wav"):
     """Accumulate audio data, keep last N seconds, and save to file every N seconds."""
@@ -44,6 +45,7 @@ class STTAudioProcess(multiprocessing.Process):
         self.webrtc_audio_queue = webrtc_audio_queue  # Queue to receive WebRTC audio
         self.last_text_change_timestamp = last_text_change_timestamp
         self.last_text = ""  # Track previous text for comparison
+        self.last_text_change_time = 0  # Timestamp of last text change
         
     def run(self):
         """Main process loop - processes WebRTC audio and runs STT"""
@@ -56,6 +58,7 @@ class STTAudioProcess(multiprocessing.Process):
         
         print("🎤 STT+WebRTC process started")
         print(f"📊 Audio: {SAMPLE_RATE}Hz, {CHUNK_DURATION_MS}ms chunks ({CHUNK_SIZE} samples)")
+        print(f"⏱️  Text stabilization delay: {TEXT_STABILIZATION_DELAY_MS}ms")
         print("🔗 Waiting for WebRTC audio input...")
         
         # Run async event loop to process WebRTC audio
@@ -84,14 +87,6 @@ class STTAudioProcess(multiprocessing.Process):
                 if not isinstance(audio_data, np.ndarray):
                     print("DATA NOT IN THE RIGHT FORMAT?")
                     audio_data = np.array(audio_data, dtype=np.float32)
-
-                # Try to get sample rate from aiortc frame if available
-                sample_rate = SAMPLE_RATE
-                if hasattr(audio_data, 'sample_rate'):
-                    sample_rate = audio_data.sample_rate
-                # If frame is available in scope, use its sample_rate
-                if 'frame' in locals() and hasattr(frame, 'sample_rate'):
-                    sample_rate = frame.sample_rate
 
                 # Accumulate samples in buffer
                 audio_buffer = np.concatenate([audio_buffer, audio_data])
@@ -135,14 +130,23 @@ class STTAudioProcess(multiprocessing.Process):
                     # Update the last text change timestamp
                     self.last_text_change_timestamp.value = time.time()
                     self.last_text = text
+                    self.last_text_change_time = time.time()
+                    
+                    print(f"📝 STT (WebRTC): '{text}' (waiting for stabilization)")
                 
-                print(f"📝 STT (WebRTC): '{text}'")
+                # Check if enough time has passed since last text change
+                current_time = time.time()
+                time_since_change = (current_time - self.last_text_change_time) * 1000  # Convert to ms
                 
-                # Send already-stripped text to LLM process - crash if queue full
-                try:
-                    self.text_queue.put(text, block=False)
-                except Exception as e:
-                    print(f"❌ Failed to send text to LLM process: {e}")
+                if time_since_change >= TEXT_STABILIZATION_DELAY_MS:
+                    # Text has stabilized, send it to the queue
+                    try:
+                        self.text_queue.put(text, block=False)
+                        print(f"📤 Sent stabilized text to LLM: '{text}'")
+                        # Reset the change time to prevent duplicate sends
+                        self.last_text_change_time = 0
+                    except Exception as e:
+                        print(f"❌ Failed to send text to LLM process: {e}")
                     
         except Exception as e:
             print(f"❌ Error in STT processing: {e}")
