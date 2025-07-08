@@ -5,11 +5,11 @@ class TTSPlaybackProcessor extends AudioWorkletProcessor {
     this.readOffset = 0;
     this.samplesRemaining = 0;
     this.isPlaying = false;
+    this.firstDataReceived = false;
+    this.firstDataTime = null;
 
     // Listen for incoming messages
     this.port.onmessage = (event) => {
-      console.log('🎵 [AudioWorklet] Message received:', event.data);
-      
       // Check if this is a control message (object with a "type" property).
       if (event.data && typeof event.data === "object" && event.data.type === "clear") {
         // Clear the TTS buffer and reset playback state.
@@ -21,11 +21,33 @@ class TTSPlaybackProcessor extends AudioWorkletProcessor {
         return;
       }
       
-      // Otherwise assume it's a PCM chunk (e.g., an Int16Array)
-      // (You may also check here if event.data instanceof Int16Array if needed)
-      this.bufferQueue.push(event.data);
-      this.samplesRemaining += event.data.length;
-      console.log('🎵 [AudioWorklet] Audio chunk added, total samples:', this.samplesRemaining);
+      // Handle audio data with timestamp
+      if (event.data && typeof event.data === "object" && event.data.audioData) {
+        // Track first data received
+        if (!this.firstDataReceived) {
+          this.firstDataReceived = true;
+          this.firstDataTime = event.data.timestamp;
+          console.log(`⏱️ [AudioWorklet] First audio data received at timestamp: ${this.firstDataTime}`);
+        }
+        
+        // Add audio data to buffer
+        this.bufferQueue.push(event.data.audioData);
+        this.samplesRemaining += event.data.audioData.length;
+        return;
+      }
+      
+      // Fallback: assume it's a direct PCM chunk (for backward compatibility)
+      if (event.data instanceof Int16Array) {
+        // Track first data received
+        if (!this.firstDataReceived) {
+          this.firstDataReceived = true;
+          this.firstDataTime = currentTime;
+          console.log(`⏱️ [AudioWorklet] First audio data received at: ${this.firstDataTime.toFixed(6)}s`);
+        }
+        
+        this.bufferQueue.push(event.data);
+        this.samplesRemaining += event.data.length;
+      }
     };
   }
 

@@ -94,7 +94,7 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"🎵 [WebSocket] Cleanup complete for {connection_id}")
 
 async def stream_tts_audio(websocket: WebSocket, audio_queue: multiprocessing.Queue, connection_id: str):
-    """Stream TTS audio chunks to WebSocket client"""
+    """Stream TTS audio chunks to WebSocket client with ultra-low latency optimizations"""
     print(f"🎵 [WebSocket] Starting TTS audio streaming for {connection_id}")
     chunk_count = 0
     empty_count = 0
@@ -127,11 +127,11 @@ async def stream_tts_audio(websocket: WebSocket, audio_queue: multiprocessing.Qu
                     print(f"🎵 [WebSocket] Sent {chunk_count} audio chunks to {connection_id}")
                 
             except queue.Empty:
-                # No audio data available, wait a bit
+                # No audio data available, use ultra-low latency sleep (1ms like RealtimeVoiceChat)
                 empty_count += 1
                 if empty_count % 100 == 0:  # Log every 100 empty checks
                     print(f"🎵 [WebSocket] No audio data available for {connection_id} (empty count: {empty_count})")
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.001)  # 1ms sleep for ultra-low latency
             except Exception as e:
                 print(f"❌ [WebSocket] Error streaming audio: {e}")
                 break
