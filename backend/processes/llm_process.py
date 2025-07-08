@@ -22,7 +22,7 @@ from utils.order_tracker import OrderTracker
 class LLMProcess(multiprocessing.Process):
     """Process that handles LLM text processing and response generation"""
     
-    def __init__(self, text_queue, tts_text_queue, llm_start_timestamp, llm_send_to_tts_timestamp, llm_complete_timestamp, shared_order_tracker=None, order_update_queue=None):
+    def __init__(self, text_queue, tts_text_queue, llm_start_timestamp, llm_send_to_tts_timestamp, llm_complete_timestamp, order_tracker=None, order_update_queue=None):
         super().__init__()
         self.text_queue = text_queue
         self.tts_text_queue = tts_text_queue  # Queue to send complete responses to TTS
@@ -30,8 +30,8 @@ class LLMProcess(multiprocessing.Process):
         self.llm_send_to_tts_timestamp = llm_send_to_tts_timestamp
         self.llm_complete_timestamp = llm_complete_timestamp
         self.should_cancel = False  # Simple flag for cancellation
-        # Use shared order tracker if provided, otherwise create a new one
-        self.order_tracker = shared_order_tracker if shared_order_tracker else OrderTracker()
+        # Use provided order tracker if provided, otherwise create a new one
+        self.order_tracker = order_tracker if order_tracker else OrderTracker()
         self.order_update_queue = order_update_queue  # Queue to send order updates to WebSocket
         
     def run(self):
@@ -123,9 +123,9 @@ class LLMProcess(multiprocessing.Process):
         # Send order update to WebSocket queue if available
         if self.order_update_queue:
             try:
-                order_summary = self.order_tracker.get_order_summary()
-                self.order_update_queue.put(order_summary)
-                print(f"📋 [Order] Sent update to WebSocket queue: {order_summary}")
+                order_data = self.order_tracker.format_order_for_frontend()
+                self.order_update_queue.put(order_data)
+                print(f"📋 [Order] Sent formatted update to WebSocket queue: {order_data}")
             except Exception as e:
                 print(f"❌ [Order] Error sending update to queue: {e}")
         

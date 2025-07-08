@@ -42,8 +42,7 @@ async def order_broadcast_loop():
             await asyncio.sleep(0.1)
             continue
         # Blocking get from the queue in a thread
-        order_summary = await asyncio.get_event_loop().run_in_executor(None, order_update_queue.get)
-        order_data = convert_order_summary_to_frontend_format(order_summary)
+        order_data = await asyncio.get_event_loop().run_in_executor(None, order_update_queue.get)
         # Broadcast to all connected clients
         to_remove = set()
         for ws in list(order_websocket_connections):
@@ -201,8 +200,7 @@ async def health_check():
 async def get_order():
     """Get current order"""
     if order_tracker:
-        order_summary = order_tracker.get_order_summary()
-        order_data = convert_order_summary_to_frontend_format(order_summary)
+        order_data = order_tracker.format_order_for_frontend()
         return order_data
     else:
         return {"items": [], "total": 0}
@@ -229,8 +227,7 @@ async def order_websocket(websocket: WebSocket):
     try:
         # Send initial order state
         if order_tracker:
-            order_summary = order_tracker.get_order_summary()
-            order_data = convert_order_summary_to_frontend_format(order_summary)
+            order_data = order_tracker.format_order_for_frontend()
             await websocket.send_text(json.dumps(order_data))
             print(f"📋 [Order] Sent initial order to {connection_id}: {order_data}")
         else:
@@ -259,39 +256,3 @@ async def order_websocket(websocket: WebSocket):
     finally:
         order_websocket_connections.discard(websocket)
 
-def convert_order_summary_to_frontend_format(order_summary: str) -> Dict[str, Any]:
-    """Convert order summary string to frontend format"""
-    if "Previous Order:" not in order_summary or "(empty)" in order_summary:
-        return {"items": [], "total": 0}
-    
-    # Parse the order summary
-    lines = order_summary.strip().split('\n')
-    items = []
-    total = 0
-    
-    for line in lines:
-        line = line.strip()
-        if line.startswith('-') and 'x' in line:
-            # Parse "2x Bean Burrito" format
-            try:
-                # Remove the "-" and parse
-                item_text = line[1:].strip()
-                parts = item_text.split('x', 1)
-                if len(parts) == 2:
-                    quantity = int(parts[0].strip())
-                    item_name = parts[1].strip()
-                    
-                    # Create item object (using placeholder price for now)
-                    item = {
-                        "id": f"item_{len(items)}",
-                        "name": item_name,
-                        "price": 8.99,  # Placeholder price
-                        "quantity": quantity
-                    }
-                    items.append(item)
-                    total += item["price"] * quantity
-            except (ValueError, IndexError) as e:
-                print(f"📋 [Order] Error parsing order line '{line}': {e}")
-                continue
-    
-    return {"items": items, "total": round(total, 2)}

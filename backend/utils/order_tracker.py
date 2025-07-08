@@ -1,5 +1,5 @@
 import re
-from typing import Dict
+from typing import Dict, List, Any
 
 
 class OrderTracker:
@@ -49,6 +49,27 @@ class OrderTracker:
         for item_name, quantity in self.order_items.items():
             summary += f"- {quantity}x {item_name}\n"
         return summary.strip()
+    
+    def format_order_for_frontend(self) -> Dict[str, Any]:
+        """Format order for frontend consumption"""
+        if not self.order_items:
+            return {"items": [], "total": 0}
+        
+        items = []
+        total = 0
+        
+        for item_name, quantity in self.order_items.items():
+            # Create item object (using placeholder price for now)
+            item = {
+                "id": f"item_{len(items)}",
+                "name": item_name,
+                "price": 8.99,  # Placeholder price
+                "quantity": quantity
+            }
+            items.append(item)
+            total += item["price"] * quantity
+        
+        return {"items": items, "total": round(total, 2)}
     
     def clear_order(self):
         """Clear the current order"""
