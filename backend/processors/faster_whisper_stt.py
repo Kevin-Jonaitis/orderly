@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Tuple, Optional, Dict, Any
 import io
 import wave
+import soundfile as sf
 
 from .stt import BaseSTTProcessor
 
@@ -32,6 +33,7 @@ class FasterWhisperSTTProcessor(BaseSTTProcessor):
         self.model_size = model_size
         self.device = device
         self.compute_type = compute_type
+        self.manual_speech_end_timestamp = None
         
         logger.info(f"🚀 Loading Faster Whisper model: {model_size} on {device} with {compute_type}")
         
@@ -65,6 +67,34 @@ class FasterWhisperSTTProcessor(BaseSTTProcessor):
         """Reset state between sessions"""
         self.step_num = 0
         
+    async def warm_up_stt_model(self):
+        """Warm up the STT model by transcribing test audio"""
+        print("🔥 [STT] Warming up STT model...")
+        warmup_start_time = time.time()
+        
+        if os.path.exists("test_audio.wav"):
+            try:
+                print("🔥 [STT] Transcribing test_audio.wav for warm-up...")
+                # Read test audio file
+                audio_data, sample_rate = sf.read("test_audio.wav")
+                # Convert to float32 if needed
+                if audio_data.dtype != np.float32:
+                    audio_data = audio_data.astype(np.float32)
+                
+                # Convert to WAV bytes for simple transcription
+                audio_array = np.array(audio_data, dtype=np.float32)
+                wav_bytes = self._audio_to_wav_bytes(audio_array)
+                
+                # Call transcribe directly and await the result
+                result = await self.transcribe(wav_bytes)
+                warmup_time = (time.time() - warmup_start_time) * 1000
+                print(f"✅ [STT] STT warm-up completed in {warmup_time:.1f}ms with result: '{result}'")
+                    
+            except Exception as e:
+                print(f"❌ [STT] Failed to send STT warm-up audio: {e}")
+        else:
+            print("⚠️ [STT] test_audio.wav not found, skipping STT warm-up")
+        
     def _audio_to_wav_bytes(self, audio_chunk: np.ndarray) -> bytes:
         """Convert audio chunk to WAV bytes for Faster Whisper"""
         # Ensure audio is in the right format
@@ -90,6 +120,7 @@ class FasterWhisperSTTProcessor(BaseSTTProcessor):
         # in the silence-based approach. Return empty result.
         return "", 0.0
     
+
     async def transcribe(self, wav_bytes: bytes) -> str:
         """File-based transcription for compatibility with BaseSTTProcessor"""
         try:
@@ -135,21 +166,13 @@ class FasterWhisperSTTProcessor(BaseSTTProcessor):
     
     async def transcribe_buffer_with_timing(
         self, 
-        audio_buffer: list, 
-        segment_count: int,
-        silence_detected_time: float,
-        manual_speech_end_timestamp=None,
-        stats_printed: bool = False
+        audio_buffer: list
     ) -> str:
         """
         Transcribe audio buffer with detailed timing and statistics
         
         Args:
-            audio_buffer: List of audio samples
-            segment_count: Current segment number
-            silence_detected_time: When silence was detected
-            manual_speech_end_timestamp: Shared timing variable for keyboard input
-            stats_printed: Whether stats have been printed for this session
+            audio_buffer: List of audio samples (already cleaned of trailing silence)
             
         Returns:
             Transcribed text string
@@ -158,21 +181,11 @@ class FasterWhisperSTTProcessor(BaseSTTProcessor):
             return ""
         
         # Constants
-        SILENCE_TIMEOUT_MS = 300
         SAMPLE_RATE = 16000
-        
-        # Remove the last 300ms of silence from the buffer
-        silence_samples = int(SILENCE_TIMEOUT_MS * SAMPLE_RATE / 1000)
-        audio_without_silence = audio_buffer[:-silence_samples] if len(audio_buffer) > silence_samples else []
-        
-        # Check if we have enough audio to transcribe (at least 100ms)
-        min_audio_samples = int(100 * SAMPLE_RATE / 1000)  # 100ms minimum
-        if len(audio_without_silence) < min_audio_samples:
-            return ""
         
         try:
             # Convert audio buffer to numpy array
-            audio_array = np.array(audio_without_silence, dtype=np.float32)
+            audio_array = np.array(audio_buffer, dtype=np.float32)
             
             # Convert to WAV bytes for STT processing with timing
             save_wav_start = time.time()
@@ -194,33 +207,20 @@ class FasterWhisperSTTProcessor(BaseSTTProcessor):
             
             # Check if keyboard timing is available (manual_speech_end_timestamp > 0)
             keyboard_timing = None
-            silence_to_transcription = None
-            keyboard_to_silence = None
-            if manual_speech_end_timestamp and manual_speech_end_timestamp.value > 0:
-                keyboard_timing = (transcription_complete_time - manual_speech_end_timestamp.value) * 1000
-            if silence_detected_time is not None:
-                silence_to_transcription = (transcription_complete_time - silence_detected_time) * 1000
-            if (manual_speech_end_timestamp and manual_speech_end_timestamp.value > 0 and 
-                silence_detected_time is not None):
-                keyboard_to_silence = (silence_detected_time - manual_speech_end_timestamp.value) * 1000
+            if self.manual_speech_end_timestamp and self.manual_speech_end_timestamp.value > 0:
+                keyboard_timing = (transcription_complete_time - self.manual_speech_end_timestamp.value) * 1000
             
-            # Print detailed stats if keyboard was pressed and not already printed
-            if (manual_speech_end_timestamp and manual_speech_end_timestamp.value > 0 and 
-                not stats_printed and transcribed_text):
-                print(f"\n🎤 STT TIMING STATS (Segment {segment_count}):")
+            # Print detailed stats if keyboard was pressed and we have transcribed text
+            if (self.manual_speech_end_timestamp and self.manual_speech_end_timestamp.value > 0 and 
+                transcribed_text):
+                print(f"\n📊 STT TIMING STATS:")
                 print(f"🎤 Text: '{transcribed_text}'")
-                if silence_to_transcription is not None:
-                    print(f"🔇 Silence to transcription: {silence_to_transcription:.2f}ms")
                 print(f" Save audio to WAV: {save_wav_time:.2f} ms")
                 print(f"⏱️  Transcribe time: {transcribe_time:.2f} ms")
                 print(f"🎵 Audio length: {audio_duration:.2f} seconds")
                 print(f"📊 Buffer size: {len(audio_buffer)} samples")
                 print(f"⌨️  Keyboard to transcription: {keyboard_timing:.2f}ms")
-                if keyboard_to_silence is not None:
-                    print(f"⌨️  Keyboard to silence: {keyboard_to_silence:.2f}ms")
                 print(f"🕒 Transcription complete time: {transcription_complete_time:.2f} s")
-                if silence_detected_time is not None:
-                    print(f"🔇 Silence detected time: {silence_detected_time:.2f} s")
                 print("-" * 50)
             
             return transcribed_text

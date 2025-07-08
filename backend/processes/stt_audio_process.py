@@ -69,12 +69,13 @@ def audio_to_wav_bytes(audio_array: np.ndarray, sample_rate: int = 16000) -> byt
 class STTAudioProcess(multiprocessing.Process):
     """Process that handles WebRTC audio input and STT processing"""
     
-    def __init__(self, text_queue, webrtc_audio_queue, last_text_change_timestamp, manual_speech_end_timestamp=None):
+    def __init__(self, text_queue, webrtc_audio_queue, last_text_change_timestamp, manual_speech_end_timestamp=None, stt_warmup_flag=None):
         super().__init__()
         self.text_queue = text_queue
         self.webrtc_audio_queue = webrtc_audio_queue  # Queue to receive WebRTC audio
         self.last_text_change_timestamp = last_text_change_timestamp
         self.manual_speech_end_timestamp = manual_speech_end_timestamp  # Shared timing variable
+        self.stt_warmup_flag = stt_warmup_flag  # Shared flag to trigger STT warm-up
         
         # Silence detection variables
         self.audio_buffer = []
@@ -96,6 +97,8 @@ class STTAudioProcess(multiprocessing.Process):
         # Initialize STT processor
         print("📝 Initializing STT processor...")
         stt_processor = create_stt_processor("faster-whisper", model_size="tiny", device="cuda", compute_type="int8_float16")
+        # Set the manual speech end timestamp on the processor for timing measurements
+        stt_processor.set_manual_speech_end_timestamp(self.manual_speech_end_timestamp)
         print("✅ STT processor loaded")
         
         print(" STT+WebRTC process started (using Faster Whisper with silence detection)")
@@ -114,8 +117,19 @@ class STTAudioProcess(multiprocessing.Process):
     
     async def _process_webrtc_audio_loop(self, stt_processor):
         """Async loop for processing WebRTC audio chunks with silence detection"""
+        stt_warmed_up = False  # Track if STT has been warmed up
+        
         while True:
             try:
+                # Check if we need to warm up the STT model
+                if (self.stt_warmup_flag and self.stt_warmup_flag.value == 1 and not stt_warmed_up):
+                    print("🔥 [STT] Warming up STT model due to client connection...")
+                    await stt_processor.warm_up_stt_model()
+                    stt_warmed_up = True
+                    # Reset the flag
+                    self.stt_warmup_flag.value = 0
+                    print("✅ [STT] STT model warmed up")
+                
                 # Get audio data from WebRTC queue
                 audio_data = self.webrtc_audio_queue.get()
                 if not isinstance(audio_data, np.ndarray):
@@ -156,15 +170,21 @@ class STTAudioProcess(multiprocessing.Process):
         if len(self.audio_buffer) == 0:
             return
         
-        self.segment_count += 1
+        # Remove the last 300ms of silence from the buffer
+        silence_samples = int(SILENCE_TIMEOUT_MS * SAMPLE_RATE / 1000)
+        audio_without_silence = self.audio_buffer[:-silence_samples] if len(self.audio_buffer) > silence_samples else []
         
-        # Use the STT processor's timing method
+        # Check if we have enough audio to transcribe (at least 100ms)
+        min_audio_samples = int(100 * SAMPLE_RATE / 1000)  # 100ms minimum
+        if len(audio_without_silence) < min_audio_samples:
+            # Reset buffer and silence counter
+            self.audio_buffer = []
+            self.silence_duration = 0
+            return
+        
+        # Use the STT processor's timing method with cleaned audio
         transcribed_text = await stt_processor.transcribe_buffer_with_timing(
-            audio_buffer=self.audio_buffer,
-            segment_count=self.segment_count,
-            silence_detected_time=self.silence_detected_time,
-            manual_speech_end_timestamp=self.manual_speech_end_timestamp,
-            stats_printed=self.stats_printed
+            audio_buffer=audio_without_silence
         )
         
         if transcribed_text:
@@ -179,12 +199,7 @@ class STTAudioProcess(multiprocessing.Process):
                 print(f"❌ Failed to send text to LLM process: {e}")
             
             # Print basic results (always)
-            print(f"\n🎤 Segment {self.segment_count}: '{transcribed_text}'")
-            
-            # Mark stats as printed if timing stats were shown
-            if (self.manual_speech_end_timestamp and self.manual_speech_end_timestamp.value > 0 and 
-                not self.stats_printed):
-                self.stats_printed = True
+            print(f"\n🎤 Segment: '{transcribed_text}'")
         
         # Reset buffer and silence counter
         self.audio_buffer = []

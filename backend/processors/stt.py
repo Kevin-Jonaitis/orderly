@@ -32,6 +32,14 @@ class BaseSTTProcessor(ABC):
     def reset_state(self):
         """Reset processor state between sessions"""
         pass
+    
+    async def warm_up_stt_model(self):
+        """Warm up the STT model - default implementation does nothing"""
+        pass
+    
+    def set_manual_speech_end_timestamp(self, timestamp):
+        """Set the manual speech end timestamp for timing measurements"""
+        self.manual_speech_end_timestamp = timestamp
 
 # ================== STT FACTORY ==================
 def create_stt_processor(processor_type: str = "nemo", **kwargs) -> BaseSTTProcessor:

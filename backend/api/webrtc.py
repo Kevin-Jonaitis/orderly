@@ -14,8 +14,6 @@ from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack
 from aiortc.contrib.media import MediaBlackhole
 from fastapi import FastAPI, HTTPException
 import collections
-import soundfile as sf
-import scipy.signal
 from av import AudioFrame
 
 # Import the AudioProcessorTrack from its new location
@@ -26,37 +24,7 @@ from processes.audio_response_track import AudioResponseTrack
 # Global state - exact copy from aiortc server.py
 pcs = set()
 
-# Global flag to track if STT has been warmed up
-stt_warmed_up = False
-
-def warm_up_stt_model(audio_queue: multiprocessing.Queue):
-    """Warm up the STT model by sending test audio"""
-    global stt_warmed_up
-    
-    if stt_warmed_up:
-        print("🔥 [WebRTC] STT already warmed up, skipping...")
-        return
-    
-    print("🔥 [WebRTC] Warming up STT model...")
-    
-    if os.path.exists("test_audio.wav"):
-        try:
-            print("🔥 [WebRTC] Sending test_audio.wav to STT for warm-up...")
-            # Read test audio file
-            audio_data, sample_rate = sf.read("test_audio.wav")
-            # Convert to float32 if needed
-            if audio_data.dtype != np.float32:
-                audio_data = audio_data.astype(np.float32)
-            # Send to STT queue for warm-up
-            audio_queue.put(audio_data)
-            print("✅ [WebRTC] STT warm-up audio sent")
-            stt_warmed_up = True
-        except Exception as e:
-            print(f"❌ [WebRTC] Failed to send STT warm-up audio: {e}")
-    else:
-        print("⚠️ [WebRTC] test_audio.wav not found, skipping STT warm-up")
-
-def setup_webrtc_routes(app: FastAPI, audio_queue: multiprocessing.Queue, audio_output_webrtc_queue: multiprocessing.Queue):
+def setup_webrtc_routes(app: FastAPI, audio_queue: multiprocessing.Queue, audio_output_webrtc_queue: multiprocessing.Queue, stt_warmup_flag):
     """Set up WebRTC routes - direct port of aiortc server.py for FastAPI"""
     
     @app.post("/api/webrtc/offer")
@@ -77,12 +45,14 @@ def setup_webrtc_routes(app: FastAPI, audio_queue: multiprocessing.Queue, audio_
         
         @pc.on("connectionstatechange")
         async def on_connectionstatechange():
-            """Monitor connection state and warm up STT when connected"""
+            """Monitor connection state and trigger STT warm-up when connected"""
             print(f"🔗 [WebRTC] {pc_id} connection state is {pc.connectionState}")
             
             if pc.connectionState == "connected":
-                print("🔥 [WebRTC] Connection established - warming up STT model...")
-                # warm_up_stt_model(audio_queue)
+                print("✅ [WebRTC] Connection established - triggering STT warm-up...")
+                # Set the warm-up flag to signal the STT process
+                stt_warmup_flag.value = 1
+                print("🔥 [WebRTC] STT warm-up flag set")
                     
             elif pc.connectionState == "failed":
                 print(f"❌ [WebRTC] {pc_id} connection failed")

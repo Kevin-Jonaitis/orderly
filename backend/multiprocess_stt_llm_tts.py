@@ -84,13 +84,13 @@ def keyboard_listener(manual_speech_end_timestamp, manual_audio_heard_timestamp,
         print("⌨️  Manual timing stopped")
         pass
 
-def start_webrtc_server(webrtc_audio_queue, audio_output_webrtc_queue):
+def start_webrtc_server(webrtc_audio_queue, audio_output_webrtc_queue, stt_warmup_flag):
     """Start WebRTC server in a separate thread"""
     def run_server():
         app = FastAPI(title="WebRTC Audio Server")
         
-        # Setup WebRTC routes with both audio queues
-        setup_webrtc_routes(app, webrtc_audio_queue, audio_output_webrtc_queue)
+        # Setup WebRTC routes with both audio queues and warm-up flag
+        setup_webrtc_routes(app, webrtc_audio_queue, audio_output_webrtc_queue, stt_warmup_flag)
         
         # Configure CORS for browser access
         from fastapi.middleware.cors import CORSMiddleware
@@ -142,11 +142,14 @@ def main():
     # Manual timing event counter
     manual_event_count = multiprocessing.Value('i', 0)         # Event counter (0,1,2)
     
+    # Shared flag to signal STT warm-up when client connects
+    stt_warmup_flag = multiprocessing.Value('i', 0)            # 0 = no warm-up needed, 1 = warm-up needed
+    
     # Start WebRTC server
-    webrtc_thread = start_webrtc_server(webrtc_audio_queue, audio_output_webrtc_queue)
+    webrtc_thread = start_webrtc_server(webrtc_audio_queue, audio_output_webrtc_queue, stt_warmup_flag)
     
     # Start processes
-    stt_process = STTAudioProcess(text_queue, webrtc_audio_queue, last_text_change_timestamp, manual_speech_end_timestamp)
+    stt_process = STTAudioProcess(text_queue, webrtc_audio_queue, last_text_change_timestamp, manual_speech_end_timestamp, stt_warmup_flag)
     llm_process = LLMProcess(text_queue, tts_text_queue, llm_start_timestamp, llm_send_to_tts_timestamp, llm_complete_timestamp)
     tts_process = TTSProcess(tts_text_queue, audio_queue, first_audio_chunk_timestamp)
     audio_process = AudioProcessor(audio_queue, first_audio_chunk_timestamp, audio_output_webrtc_queue)

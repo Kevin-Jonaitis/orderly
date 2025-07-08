@@ -89,6 +89,58 @@ class NeMoSTTProcessor(BaseSTTProcessor):
         self.previous_hypotheses = None
         self.pred_out_stream = None
         self.step_num = 0
+    
+    async def warm_up_stt_model(self):
+        """Warm up the NeMo STT model by processing a small amount of audio"""
+        logger.info("🔥 [NeMo STT] Warming up STT model...")
+        
+        # Create a small amount of silence audio for warm-up
+        import numpy as np
+        warm_up_audio = np.zeros(1600, dtype=np.float32)  # 100ms of silence at 16kHz
+        
+        try:
+            # Convert to WAV bytes and transcribe
+            wav_bytes = self._audio_to_wav_bytes(warm_up_audio)
+            
+            # Use asyncio to run the async transcribe function
+            import asyncio
+            try:
+                # Get the current event loop or create a new one
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                                    # Run the transcription
+                    result = await self.transcribe(wav_bytes)
+                    logger.info(f"✅ [NeMo STT] STT warm-up completed")
+            except Exception as e:
+                logger.error(f"❌ [NeMo STT] Failed to run warm-up transcription: {e}")
+                
+        except Exception as e:
+            logger.error(f"❌ [NeMo STT] Failed to warm up STT model: {e}")
+    
+    def _audio_to_wav_bytes(self, audio_chunk: np.ndarray) -> bytes:
+        """Convert audio chunk to WAV bytes for NeMo STT"""
+        # Ensure audio is in the right format
+        if audio_chunk.dtype != np.float32:
+            audio_chunk = audio_chunk.astype(np.float32)
+        
+        # Convert from float32 [-1, 1] to int16 [-32768, 32767]
+        audio_int16 = (audio_chunk * 32767).astype(np.int16)
+        
+        # Create WAV file in memory
+        import io
+        import wave
+        wav_buffer = io.BytesIO()
+        with wave.open(wav_buffer, 'wb') as wav_file:
+            wav_file.setnchannels(1)  # Mono
+            wav_file.setsampwidth(2)  # 16-bit
+            wav_file.setframerate(16000)  # 16kHz
+            wav_file.writeframes(audio_int16.tobytes())
+        
+        return wav_buffer.getvalue()
         
     async def transcribe(self, wav_bytes: bytes) -> str:
         """File-based transcription for compatibility with BaseSTTProcessor"""
