@@ -118,6 +118,7 @@ class STTAudioProcess(multiprocessing.Process):
     async def _process_webrtc_audio_loop(self, stt_processor):
         """Async loop for processing WebRTC audio chunks with silence detection"""
         stt_warmed_up = False  # Track if STT has been warmed up
+        chunk_count = 0
         
         while True:
             try:
@@ -130,10 +131,19 @@ class STTAudioProcess(multiprocessing.Process):
                     self.stt_warmup_flag.value = 0
                     print("✅ [STT] STT model warmed up")
                 
-                # Get audio data from WebRTC queue
+                # Get audio data from WebRTC queue with timing
+                queue_get_start = time.time()
                 audio_data = self.webrtc_audio_queue.get()
+                queue_get_time = (time.time() - queue_get_start) * 1000
+                
                 if not isinstance(audio_data, np.ndarray):
                     audio_data = np.array(audio_data, dtype=np.float32)
+
+                chunk_count += 1
+                
+                # Log queue timing every 100 chunks
+                if chunk_count % 100 == 0:
+                    print(f"📊 [STT] Chunk {chunk_count}: Queue get time: {queue_get_time:.2f}ms, Queue size: {self.webrtc_audio_queue.qsize()}")
 
                 # Process the audio chunk with silence detection
                 await self._process_audio_chunk(audio_data, stt_processor)
@@ -170,6 +180,12 @@ class STTAudioProcess(multiprocessing.Process):
         if len(self.audio_buffer) == 0:
             return
         
+        # Start timing for buffer-to-transcription
+        buffer_transcribe_start = time.time()
+        
+        # Record transcription start time
+        self.transcription_start_time = time.time()
+        
         # Remove the last 300ms of silence from the buffer
         silence_samples = int(SILENCE_TIMEOUT_MS * SAMPLE_RATE / 1000)
         audio_without_silence = self.audio_buffer[:-silence_samples] if len(self.audio_buffer) > silence_samples else []
@@ -182,10 +198,29 @@ class STTAudioProcess(multiprocessing.Process):
             self.silence_duration = 0
             return
         
+        # Calculate audio duration
+        audio_duration = len(self.audio_buffer) / SAMPLE_RATE
+        
+        # Calculate timing intervals
+        silence_to_transcription = None
+        if self.silence_detected_time is not None:
+            silence_to_transcription = (self.transcription_start_time - self.silence_detected_time) * 1000
+        
         # Use the STT processor's timing method with cleaned audio
         transcribed_text = await stt_processor.transcribe_buffer_with_timing(
             audio_buffer=audio_without_silence
         )
+        
+        # Record transcription complete time
+        self.transcription_complete_time = time.time()
+        
+        # Calculate keyboard timing if available
+        keyboard_timing = None
+        keyboard_to_silence = None
+        if self.manual_speech_end_timestamp and self.manual_speech_end_timestamp.value > 0:
+            keyboard_timing = (self.transcription_complete_time - self.manual_speech_end_timestamp.value) * 1000
+        if self.manual_speech_end_timestamp and self.manual_speech_end_timestamp.value > 0 and self.silence_detected_time is not None:
+            keyboard_to_silence = (self.silence_detected_time - self.manual_speech_end_timestamp.value) * 1000
         
         if transcribed_text:
             # Update the last text change timestamp
@@ -197,6 +232,24 @@ class STTAudioProcess(multiprocessing.Process):
                 print(f"📤 Sent transcribed text to LLM: '{transcribed_text}'")
             except Exception as e:
                 print(f"❌ Failed to send text to LLM process: {e}")
+            
+            # Print detailed timing stats if keyboard was pressed
+            if (self.manual_speech_end_timestamp and self.manual_speech_end_timestamp.value > 0 and 
+                transcribed_text and not self.stats_printed):
+                print(f"\n📊 STT PIPELINE TIMING BREAKDOWN:")
+                print(f"🎤 Text: '{transcribed_text}'")
+                print(f"🎵 Audio length: {audio_duration:.2f} seconds")
+                print(f"📊 Buffer size: {len(self.audio_buffer)} samples")
+                print(f"📊 Cleaned buffer size: {len(audio_without_silence)} samples")
+                if silence_to_transcription is not None:
+                    print(f"🔇 Silence detected → Transcription start: {silence_to_transcription:.2f}ms")
+                if keyboard_to_silence is not None:
+                    print(f"⌨️  Keyboard → Silence detected: {keyboard_to_silence:.2f}ms")
+                if keyboard_timing is not None:
+                    print(f"⌨️  Keyboard → Transcription complete: {keyboard_timing:.2f}ms")
+                print(f"🕒 Transcription complete time: {self.transcription_complete_time:.3f} s")
+                print("-" * 50)
+                self.stats_printed = True
             
             # Print basic results (always)
             print(f"\n🎤 Segment: '{transcribed_text}'")
