@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Real-time STT test with 80ms chunks - matching Rust server behavior
-Uses NeMo's streaming capabilities for true incremental processing
+Real-time STT test with modular processor system
+Supports both NeMo and Faster Whisper processors
 """
 
 import sys
@@ -14,189 +14,61 @@ import numpy as np
 import sounddevice as sd
 from pathlib import Path
 from datetime import datetime
+import multiprocessing
 
 # Add the backend directory to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Import NeMo components directly for streaming
-import torch
+# Import STT factory
+from processors.stt import create_stt_processor
 import logging
 
 # Set up minimal logging to reduce noise
 logging.getLogger('nemo').setLevel(logging.WARNING)
+logging.getLogger('faster_whisper').setLevel(logging.WARNING)
 
 SAMPLE_RATE = 24000  # Match Rust server (will downsample to 16kHz for NeMo)
 CHUNK_DURATION_MS = 80  # 80ms chunks like rust server
 CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION_MS / 1000)  # 1920 samples at 24kHz
 
-class RealTimeSTTProcessor:
-    """Real-time STT processor using NeMo streaming capabilities"""
+async def keyboard_input_handler(stop_talking_timestamp, last_text_change_timestamp):
+    """Handle keyboard input for timing measurements"""
+    print("⌨️  Press ENTER to mark when you stop talking")
+    print("⌨️  Press ENTER again to measure time since last text change")
+    print("⌨️  Press Ctrl+C to exit")
     
-    def __init__(self):
-        print("🚀 Initializing NeMo streaming STT...")
-        start_init = time.time()
-        
+    while True:
         try:
-            import nemo.collections.asr as nemo_asr
-            from nemo.collections.asr.parts.utils.streaming_utils import CacheAwareStreamingAudioBuffer
-            from omegaconf import open_dict
+            # Wait for Enter key press
+            await asyncio.get_event_loop().run_in_executor(None, input)
             
-            # Load model exactly like ParakeetSTTProcessor
-            model_name = "stt_en_fastconformer_hybrid_large_streaming_multi"
-            self.model = nemo_asr.models.ASRModel.from_pretrained(model_name=model_name)
+            current_time = time.time()
             
-            # Set up autocast for mixed precision
-            self.autocast = torch.amp.autocast(self.model.device.type, enabled=True)
-            
-            # Configure decoding
-            decoding_cfg = self.model.cfg.decoding
-            with open_dict(decoding_cfg):
-                decoding_cfg.strategy = "greedy"
-                decoding_cfg.preserve_alignments = False
-                if hasattr(self.model, 'joint'):
-                    decoding_cfg.fused_batch_size = -1
-                    if not (max_symbols := decoding_cfg.greedy.get("max_symbols")) or max_symbols <= 0:
-                        decoding_cfg.greedy.max_symbols = 10
-                if hasattr(self.model, "cur_decoder"):
-                    self.model.change_decoding_strategy(decoding_cfg, decoder_type=self.model.cur_decoder)
-                else:
-                    self.model.change_decoding_strategy(decoding_cfg)
-            
-            # Model setup
-            self.model = self.model.cuda()
-            self.model.eval()
-            
-            # Set attention context size for low latency (80ms)
-            ATT_CONTEXT_SIZE = [70, 1]  # 80ms latency
-            self.model.encoder.set_default_att_context_size(ATT_CONTEXT_SIZE)
-            
-            # Store the buffer class for later use
-            self.CacheAwareStreamingAudioBuffer = CacheAwareStreamingAudioBuffer
-            
-            # Initialize streaming state
-            batch_size = 1
-            self.cache_last_channel, self.cache_last_time, self.cache_last_channel_len = \
-                self.model.encoder.get_initial_cache_state(batch_size=batch_size)
-            self.previous_hypotheses = None
-            self.pred_out_stream = None
-            self.step_num = 0
-            
-            # Minimal buffering - need at least 2 chunks (160ms) for valid mel features
-            # NOTE: We tried processing single 80ms chunks directly, but it caused 
-            # "cannot reshape tensor of 0 elements" errors due to insufficient audio
-            # for NeMo's mel spectrogram computation. Sticking with 160ms (2 chunks).
-            self.audio_buffer = []
-            self.min_chunks = 2  # 160ms minimum (2 * 80ms chunks)
-            
-            init_time = (time.time() - start_init) * 1000
-            print(f"✅ NeMo streaming STT initialized in {init_time:.0f}ms")
-            
-        except Exception as e:
-            print(f"❌ Failed to initialize streaming STT: {e}")
-            raise e
-    
-    def downsample_audio(self, audio_chunk):
-        """Downsample from 24kHz to 16kHz for NeMo"""
-        # Simple downsampling: take every 3rd sample (24000/16000 = 1.5, approximately)
-        # For better quality, could use scipy.signal.resample
-        target_samples = int(len(audio_chunk) * 16000 / 24000)
-        indices = np.linspace(0, len(audio_chunk) - 1, target_samples).astype(int)
-        return audio_chunk[indices]
-    
-    async def process_audio_chunk(self, audio_chunk):
-        """Process 80ms chunks - buffer minimally to get valid mel features"""
-        try:
-            # Downsample to 16kHz for NeMo
-            audio_16k = self.downsample_audio(audio_chunk)
-            
-            # Add to buffer
-            self.audio_buffer.extend(audio_16k)
-            
-            # Process when we have 2 chunks (160ms) for stable mel features
-            chunk_samples = len(audio_16k)
-            min_samples = chunk_samples * self.min_chunks  # 160ms worth
-            
-            if len(self.audio_buffer) < min_samples:
-                # Need more chunks for stable processing
-                return ""
-            
-            # Take exactly 2 chunks worth of audio
-            audio_to_process = np.array(self.audio_buffer[:min_samples])
-            # Remove the processed audio, keep remainder
-            self.audio_buffer = self.audio_buffer[chunk_samples:]  # Remove 1 chunk, keep overlap
-            
-            # Apply preprocessing to match NeMo's expected format  
-            audio_tensor = torch.tensor(audio_to_process, dtype=torch.float32).unsqueeze(0)  # (1, time)
-            audio_length = torch.tensor([len(audio_to_process)], dtype=torch.long)
-            
-            # Move tensors to the same device as the model (GPU)
-            device = next(self.model.parameters()).device
-            audio_tensor = audio_tensor.to(device)
-            audio_length = audio_length.to(device)
-            
-            # Use model's preprocessor to get features
-            with torch.no_grad():
-                processed_signal, processed_signal_length = self.model.preprocessor(
-                    input_signal=audio_tensor,
-                    length=audio_length
-                )
-            
-            # Check if we got valid features
-            if processed_signal.numel() == 0 or processed_signal_length.item() == 0:
-                print(f"⚠️  Still empty features for 160ms chunk, skipping")
-                return ""
-            
-            # Process with streaming model
-            start_time = time.time()
-            
-            with torch.inference_mode():
-                with self.autocast:
-                    with torch.no_grad():
-                        (
-                            self.pred_out_stream,
-                            transcribed_texts,
-                            self.cache_last_channel,
-                            self.cache_last_time,
-                            self.cache_last_channel_len,
-                            self.previous_hypotheses,
-                        ) = self.model.conformer_stream_step(
-                            processed_signal=processed_signal,
-                            processed_signal_length=processed_signal_length,
-                            cache_last_channel=self.cache_last_channel,
-                            cache_last_time=self.cache_last_time,
-                            cache_last_channel_len=self.cache_last_channel_len,
-                            keep_all_outputs=True,
-                            previous_hypotheses=self.previous_hypotheses,
-                            previous_pred_out=self.pred_out_stream,
-                            drop_extra_pre_encoded=0 if self.step_num == 0 else self.model.encoder.streaming_cfg.drop_extra_pre_encoded,
-                            return_transcription=True,
-                        )
-            
-            process_time = (time.time() - start_time) * 1000
-            
-            # Extract transcription
-            if transcribed_texts and len(transcribed_texts) > 0:
-                if hasattr(transcribed_texts[0], 'text'):
-                    current_text = transcribed_texts[0].text
-                else:
-                    current_text = str(transcribed_texts[0])
+            if stop_talking_timestamp.value == 0:
+                # First Enter press - mark when user stopped talking
+                stop_talking_timestamp.value = current_time
+                print(f"⏱️  MARKED: You stopped talking at {datetime.fromtimestamp(current_time).strftime('%H:%M:%S.%f')[:-3]}")
+                
             else:
-                current_text = ""
-            
-            # Display result if there's new text
-            if current_text.strip():
-                print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🎤 [{self.step_num:3d}] {process_time:3.0f}ms: '{current_text}'")
-            elif self.step_num % 10 == 0:  # Show progress every 10 processed chunks 
-                print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🔄 [{self.step_num:3d}] Processing...")
-            
-            self.step_num += 1
-            return current_text
-            
+                # Second Enter press - measure time difference between last text change and stop talking
+                if last_text_change_timestamp.value > 0 and stop_talking_timestamp.value > 0:
+                    # Calculate time from last text change to when user stopped talking
+                    time_diff = (last_text_change_timestamp.value - stop_talking_timestamp.value) * 1000  # Convert to ms
+                    print(f"⏱️  TIME FROM LAST TEXT CHANGE TO STOP TALKING: {time_diff:.1f}ms")
+                else:
+                    print("⚠️  Need both text change and stop talking timestamps")
+                
+                # Reset the stop talking timestamp for next measurement
+                stop_talking_timestamp.value = 0
+                print("⌨️  Press ENTER to mark when you stop talking again")
+                
+        except KeyboardInterrupt:
+            print("\n🛑 Keyboard input handler stopped")
+            break
         except Exception as e:
-            print(f"❌ Error processing chunk {self.step_num}: {e}")
-            return ""
+            print(f"❌ Error in keyboard input: {e}")
 
-async def stream_microphone_realtime(device_id=None, show_devices=False):
+async def stream_microphone_realtime(device_id=None, show_devices=False, processor_type="nemo", model_size="base"):
     """Stream microphone audio with real-time 80ms chunk processing"""
     
     if show_devices:
@@ -204,12 +76,26 @@ async def stream_microphone_realtime(device_id=None, show_devices=False):
         print(sd.query_devices())
         return
     
-    # Initialize real-time STT processor
-    stt_processor = RealTimeSTTProcessor()
+    # Initialize STT processor using factory
+    print(f"🚀 Initializing {processor_type.upper()} STT processor...")
+    try:
+        if processor_type == "faster-whisper":
+            stt_processor = create_stt_processor(processor_type, model_size=model_size)
+        else:
+            stt_processor = create_stt_processor(processor_type)
+        print(f"✅ {processor_type.upper()} STT processor loaded successfully")
+    except Exception as e:
+        print(f"❌ Failed to initialize {processor_type} STT processor: {e}")
+        return
     
-    print(f"🎙️  Starting real-time transcription...")
+    print(f"🎙️  Starting real-time transcription with {processor_type.upper()}...")
     print(f"📊 Audio: {SAMPLE_RATE}Hz, {CHUNK_DURATION_MS}ms chunks ({CHUNK_SIZE} samples)")
     print("🛑 Press Ctrl+C to stop")
+    
+    # Shared timestamps for timing measurements
+    stop_talking_timestamp = multiprocessing.Value('d', 0.0)  # When user marks they stopped talking
+    last_text_change_timestamp = multiprocessing.Value('d', 0.0)  # When text last changed
+    last_text = ""  # Track previous text for comparison
     
     audio_queue = asyncio.Queue()
     loop = asyncio.get_event_loop()
@@ -226,6 +112,11 @@ async def stream_microphone_realtime(device_id=None, show_devices=False):
     # Set input device if specified
     if device_id is not None:
         sd.default.device[0] = device_id
+    
+    # Start keyboard input handler as a separate task
+    keyboard_task = asyncio.create_task(
+        keyboard_input_handler(stop_talking_timestamp, last_text_change_timestamp)
+    )
     
     # Start audio streaming with same parameters as Rust server
     with sd.InputStream(
@@ -245,6 +136,20 @@ async def stream_microphone_realtime(device_id=None, show_devices=False):
                 # Process each 80ms chunk directly
                 result = await stt_processor.process_audio_chunk(audio_chunk)
                 
+                # Handle result (text, processing_time)
+                if isinstance(result, tuple):
+                    text, processing_time = result
+                else:
+                    # Backward compatibility for processors that return just text
+                    text = result
+                    processing_time = 0.0
+                
+                # Track text changes for timing measurements
+                if text.strip() and text.strip() != last_text:
+                    last_text_change_timestamp.value = time.time()
+                    last_text = text.strip()
+                    print(f"📝 TEXT CHANGED: '{last_text}' at {datetime.fromtimestamp(last_text_change_timestamp.value).strftime('%H:%M:%S.%f')[:-3]}")
+                
                 # Show processing progress
                 if chunk_count % 50 == 0:  # Every ~4 seconds
                     print(f"📊 Processed {chunk_count} chunks ({chunk_count * 80}ms audio)")
@@ -253,6 +158,13 @@ async def stream_microphone_realtime(device_id=None, show_devices=False):
             print("\n🛑 Real-time transcription stopped")
         except Exception as e:
             print(f"❌ Error during streaming: {e}")
+        finally:
+            # Cancel keyboard task
+            keyboard_task.cancel()
+            try:
+                await keyboard_task
+            except asyncio.CancelledError:
+                pass
 
 def handle_sigint(signum, frame):
     """Handle Ctrl+C gracefully"""
@@ -260,12 +172,22 @@ def handle_sigint(signum, frame):
     sys.exit(0)
 
 async def main():
-    parser = argparse.ArgumentParser(description="Real-time microphone transcription (80ms chunks)")
+    parser = argparse.ArgumentParser(description="Real-time microphone transcription with modular STT processors")
     parser.add_argument(
         "--list-devices", action="store_true", help="List available audio devices"
     )
     parser.add_argument(
         "--device", type=int, help="Input device ID (use --list-devices to see options)"
+    )
+	
+    parser.add_argument(
+        "--processor", type=str, default="nemo", choices=["nemo", "faster-whisper"],
+        help="STT processor to use (default: nemo)"
+    )
+    parser.add_argument(
+        "--model-size", type=str, default="base", 
+        choices=["tiny", "base", "small", "medium", "large-v1", "large-v2", "large-v3"],
+        help="Model size for Faster Whisper (default: base)"
     )
     
     args = parser.parse_args()
@@ -276,7 +198,9 @@ async def main():
     # Run real-time streaming
     await stream_microphone_realtime(
         device_id=args.device,
-        show_devices=args.list_devices
+        show_devices=args.list_devices,
+        processor_type=args.processor,
+        model_size=args.model_size
     )
 
 if __name__ == "__main__":

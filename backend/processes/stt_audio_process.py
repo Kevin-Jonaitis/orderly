@@ -16,7 +16,7 @@ import soundfile as sf
 # Add the backend directory to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from processors.stt import RealTimeSTTProcessor
+from processors.stt import create_stt_processor
 
 # Audio configuration
 SAMPLE_RATE = 16000  # Match frontend and NeMo STT sample rate
@@ -53,7 +53,7 @@ class STTAudioProcess(multiprocessing.Process):
         
         # Initialize STT processor - let it crash if it fails
         print("📝 Initializing STT processor...")
-        stt_processor = RealTimeSTTProcessor()
+        stt_processor = create_stt_processor("nemo")  # Use NeMo processor for real-time processing
         print("✅ STT processor loaded")
         
         print("🎤 STT+WebRTC process started")
