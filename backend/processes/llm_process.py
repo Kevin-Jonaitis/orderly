@@ -113,7 +113,7 @@ class LLMProcess(multiprocessing.Process):
             print(f"\n✅ LLM Complete")
     
     def _parse_and_stream_tokens(self, llm_reasoner, text):
-        """Parse streaming tokens and send partial response to TTS when 'Updated Order:' is detected"""
+        """Parse streaming tokens and send response to TTS when 'Updated Order:' is detected, or send full response if not found"""
         tts_response = ""
         console_response = ""
         tts_sent = False
@@ -142,6 +142,17 @@ class LLMProcess(multiprocessing.Process):
                         self.tts_text_queue.put(tts_text)
                         print(f"\n🎵 Early TTS sent: '{tts_text[:50]}{'...' if len(tts_text) > 50 else ''}'")
                     tts_sent = True
+        
+        # If we didn't find "Updated Order:" by the end, send the complete response to TTS
+        if not tts_sent and console_response.strip():
+            # Set timestamp when sending to TTS
+            self.llm_send_to_tts_timestamp.value = time.time()
+            
+            # Send the complete response to TTS
+            if self.tts_text_queue is not None:
+                self.tts_text_queue.put(console_response.strip())
+                print(f"\n🎵 Complete TTS sent: '{console_response.strip()[:50]}{'...' if len(console_response.strip()) > 50 else ''}'")
+            tts_sent = True
         
         # Set completion timestamp
         self.llm_complete_timestamp.value = time.time()
