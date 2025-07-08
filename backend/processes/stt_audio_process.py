@@ -20,9 +20,11 @@ from processors.stt import create_stt_processor
 
 # Audio configuration
 SAMPLE_RATE = 16000  # Match frontend and NeMo STT sample rate
-CHUNK_DURATION_MS = 80  # 80ms chunks for real-time processing
-CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION_MS / 1000)  # 1280 samples at 16kHz
-TEXT_STABILIZATION_DELAY_MS = 200  # Wait 200ms for audio to stabilize
+CHUNK_DURATION_MS = 20  # ms chunks for real-time processing
+
+# Silence detection parameters
+SILENCE_THRESHOLD = 0.01  # RMS threshold for silence detection
+SILENCE_TIMEOUT_MS = 300  # 300ms of silence triggers transcription
 
 def record_mic_buffer(mic_record_buffer, audio_data, last_record_time, sample_rate=16000, record_seconds=5, record_filename="debug_mic_input.wav"):
     """Accumulate audio data, keep last N seconds, and save to file every N seconds."""
@@ -36,6 +38,11 @@ def record_mic_buffer(mic_record_buffer, audio_data, last_record_time, sample_ra
         last_record_time = now
     return mic_record_buffer, last_record_time
 
+def detect_silence(audio_chunk):
+    """Detect if audio chunk is silence based on RMS"""
+    rms = np.sqrt(np.mean(audio_chunk**2))
+    return rms < SILENCE_THRESHOLD
+
 class STTAudioProcess(multiprocessing.Process):
     """Process that handles WebRTC audio input and STT processing"""
     
@@ -44,8 +51,11 @@ class STTAudioProcess(multiprocessing.Process):
         self.text_queue = text_queue
         self.webrtc_audio_queue = webrtc_audio_queue  # Queue to receive WebRTC audio
         self.last_text_change_timestamp = last_text_change_timestamp
-        self.last_text = ""  # Track previous text for comparison
-        self.last_text_change_time = 0  # Timestamp of last text change
+        
+        # Silence detection variables
+        self.audio_buffer = []
+        self.silence_duration = 0
+        self.segment_count = 0
         
     def run(self):
         """Main process loop - processes WebRTC audio and runs STT"""
@@ -53,12 +63,12 @@ class STTAudioProcess(multiprocessing.Process):
         
         # Initialize STT processor - let it crash if it fails
         print("📝 Initializing STT processor...")
-        stt_processor = create_stt_processor("nemo")  # Use NeMo processor for real-time processing
+        stt_processor = create_stt_processor("faster-whisper", model_size="tiny", device="cuda", compute_type="int8_float16")  # Use Faster Whisper for real-time processing
         print("✅ STT processor loaded")
         
-        print("🎤 STT+WebRTC process started")
-        print(f"📊 Audio: {SAMPLE_RATE}Hz, {CHUNK_DURATION_MS}ms chunks ({CHUNK_SIZE} samples)")
-        print(f"⏱️  Text stabilization delay: {TEXT_STABILIZATION_DELAY_MS}ms")
+        print("🎤 STT+WebRTC process started (using Faster Whisper with silence detection)")
+        print(f"📊 Audio: {SAMPLE_RATE}Hz, {CHUNK_DURATION_MS}ms chunks")
+        print(f"🔇 Silence threshold: {SILENCE_THRESHOLD}, timeout: {SILENCE_TIMEOUT_MS}ms")
         print("🔗 Waiting for WebRTC audio input...")
         
         # Run async event loop to process WebRTC audio
@@ -71,15 +81,12 @@ class STTAudioProcess(multiprocessing.Process):
             raise
     
     async def _process_webrtc_audio_loop(self, stt_processor):
-        """Async loop for processing WebRTC audio chunks"""
-        audio_buffer = np.zeros(0, dtype=np.float32)
+        """Async loop for processing WebRTC audio chunks with silence detection"""
         mic_record_buffer = np.zeros(0, dtype=np.float32)
         last_record_time = time.time()
         RECORD_SECONDS = 5
         RECORD_FILENAME = "debug_mic_input.wav"
-        raw_record_buffer = np.zeros(0, dtype=np.float32)
-        last_raw_record_time = time.time()
-        RAW_RECORD_FILENAME = "debug_raw_input.wav"
+        
         while True:
             try:
                 # Get audio data from WebRTC queue with timeout
@@ -88,22 +95,8 @@ class STTAudioProcess(multiprocessing.Process):
                     print("DATA NOT IN THE RIGHT FORMAT?")
                     audio_data = np.array(audio_data, dtype=np.float32)
 
-                # Accumulate samples in buffer
-                audio_buffer = np.concatenate([audio_buffer, audio_data])
-
-                # --- Call mic recording function right before processing chunk ---
-                # Only record the audio that will be processed
-                if len(audio_buffer) >= CHUNK_SIZE:
-                    chunk = audio_buffer[:CHUNK_SIZE]
-                    mic_record_buffer, last_record_time = record_mic_buffer(
-                        mic_record_buffer, chunk, last_record_time, SAMPLE_RATE, RECORD_SECONDS, RECORD_FILENAME
-                    )
-
-                # Process all full chunks in the buffer
-                while len(audio_buffer) >= CHUNK_SIZE:
-                    chunk = audio_buffer[:CHUNK_SIZE]
-                    audio_buffer = audio_buffer[CHUNK_SIZE:]
-                    await self._process_audio_chunk(chunk, stt_processor)
+                # Process the audio chunk with silence detection
+                await self._process_audio_chunk(audio_data, stt_processor)
 
             except queue.Empty:
                 continue
@@ -112,41 +105,68 @@ class STTAudioProcess(multiprocessing.Process):
                 continue
     
     async def _process_audio_chunk(self, audio_chunk, stt_processor):
-        """Process a single audio chunk with STT"""
+        """Process a single audio chunk with silence detection"""
         try:
-            processing_start = time.time()
+            # Add to audio buffer
+            self.audio_buffer.extend(audio_chunk)
             
-            # Time the entire process_audio_chunk function
-            result = await stt_processor.process_audio_chunk(audio_chunk)
+            # Check for silence
+            if detect_silence(audio_chunk):
+                self.silence_duration += CHUNK_DURATION_MS
+            else:
+                self.silence_duration = 0  # Reset silence counter
             
-            text, internal_process_time = result
-            
-            # Strip text once here
-            text = text.strip()
-            
-            if text:
-                # Check if text has changed from previous output
-                if text != self.last_text:
-                    # Update the last text change timestamp
-                    self.last_text_change_timestamp.value = time.time()
-                    self.last_text = text
-                    self.last_text_change_time = time.time()
-                    
-                    print(f"📝 STT (WebRTC): '{text}' (waiting for stabilization)")
+            # Check if we should transcribe
+            if self.silence_duration >= SILENCE_TIMEOUT_MS and len(self.audio_buffer) > 0:
+                await self._transcribe_buffer(stt_processor)
                 
-                # Check if enough time has passed since last text change
-                current_time = time.time()
-                time_since_change = (current_time - self.last_text_change_time) * 1000  # Convert to ms
-                
-                if time_since_change >= TEXT_STABILIZATION_DELAY_MS:
-                    # Text has stabilized, send it to the queue
-                    try:
-                        self.text_queue.put(text, block=False)
-                        print(f"📤 Sent stabilized text to LLM: '{text}'")
-                        # Reset the change time to prevent duplicate sends
-                        self.last_text_change_time = 0
-                    except Exception as e:
-                        print(f"❌ Failed to send text to LLM process: {e}")
-                    
         except Exception as e:
             print(f"❌ Error in STT processing: {e}")
+    
+    async def _transcribe_buffer(self, stt_processor):
+        """Transcribe the current audio buffer"""
+        if len(self.audio_buffer) == 0:
+            return
+        
+        self.segment_count += 1
+        
+        # Remove the last 300ms of silence from the buffer
+        silence_samples = int(SILENCE_TIMEOUT_MS * SAMPLE_RATE / 1000)
+        audio_without_silence = self.audio_buffer[:-silence_samples] if len(self.audio_buffer) > silence_samples else []
+        
+        # Check if we have enough audio to transcribe (at least 100ms)
+        min_audio_samples = int(100 * SAMPLE_RATE / 1000)  # 100ms minimum
+        if len(audio_without_silence) < min_audio_samples:
+            # Reset buffer and silence counter
+            self.audio_buffer = []
+            self.silence_duration = 0
+            return
+        
+        try:
+            # Convert audio buffer to numpy array
+            audio_array = np.array(audio_without_silence, dtype=np.float32)
+            
+            # Transcribe using the STT processor
+            result = await stt_processor.transcribe(audio_array.tobytes())
+            transcribed_text = result.strip()
+            
+            if transcribed_text:
+                # Update the last text change timestamp
+                self.last_text_change_timestamp.value = time.time()
+                
+                # Send text to the queue
+                try:
+                    self.text_queue.put(transcribed_text, block=False)
+                    print(f"📤 Sent transcribed text to LLM: '{transcribed_text}'")
+                except Exception as e:
+                    print(f"❌ Failed to send text to LLM process: {e}")
+            
+            # Reset buffer and silence counter
+            self.audio_buffer = []
+            self.silence_duration = 0
+            
+        except Exception as e:
+            print(f"❌ Error in transcription: {e}")
+            # Reset buffer and silence counter on error
+            self.audio_buffer = []
+            self.silence_duration = 0

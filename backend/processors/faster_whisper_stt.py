@@ -45,21 +45,14 @@ class FasterWhisperSTTProcessor(BaseSTTProcessor):
                 compute_type=compute_type
             )
             
-            # Initialize streaming state
-            self.reset_state()
-            
-            # Audio buffering for streaming
-            self.audio_buffer = []
-            self.sample_rate = 16000  # Faster Whisper expects 16kHz
-            self.chunk_duration_ms = 80  # 80ms chunks
-            self.chunk_size = int(self.sample_rate * self.chunk_duration_ms / 1000)  # 1280 samples
-            
-            # Minimum buffer size for processing (similar to NeMo approach)
-            self.min_chunks = 2  # 160ms minimum
-            self.min_samples = self.chunk_size * self.min_chunks
+                    # Initialize state
+        self.reset_state()
+        
+        # Audio configuration
+        self.sample_rate = 16000  # Faster Whisper expects 16kHz
             
             logger.info(f"✅ Faster Whisper model loaded successfully")
-            logger.info(f"📊 Audio: {self.sample_rate}Hz, {self.chunk_duration_ms}ms chunks ({self.chunk_size} samples)")
+            logger.info(f"📊 Audio: {self.sample_rate}Hz")
             
         except ImportError as e:
             logger.error("❌ Faster Whisper not installed. Install with: pip install faster-whisper")
@@ -69,9 +62,8 @@ class FasterWhisperSTTProcessor(BaseSTTProcessor):
             raise e
     
     def reset_state(self):
-        """Reset streaming state between sessions"""
+        """Reset state between sessions"""
         self.step_num = 0
-        self.audio_buffer = []
         
     def _audio_to_wav_bytes(self, audio_chunk: np.ndarray) -> bytes:
         """Convert audio chunk to WAV bytes for Faster Whisper"""
@@ -135,54 +127,4 @@ class FasterWhisperSTTProcessor(BaseSTTProcessor):
             logger.error(f"❌ Error in Faster Whisper transcription: {e}")
             return ""
     
-    async def process_audio_chunk(self, audio_chunk) -> Tuple[str, float]:
-        """Process 80ms audio chunks for real-time streaming"""
-        try:
-            # Add to buffer
-            self.audio_buffer.extend(audio_chunk)
-            
-            # Process when we have enough chunks for stable processing
-            if len(self.audio_buffer) < self.min_samples:
-                # Need more chunks for stable processing
-                return "", 0.0
-            
-            # Take exactly min_chunks worth of audio
-            audio_to_process = np.array(self.audio_buffer[:self.min_samples])
-            # Remove the processed audio, keep remainder
-            self.audio_buffer = self.audio_buffer[self.chunk_size:]  # Remove 1 chunk, keep overlap
-            
-            # Convert to WAV bytes
-            wav_bytes = self._audio_to_wav_bytes(audio_to_process)
-            
-            # Process with Faster Whisper
-            start_time = time.time()
-            
-            # Use transcribe method with streaming-like approach
-            segments, info = self.model.transcribe(
-                io.BytesIO(wav_bytes),
-                beam_size=5,
-            )
-            
-            process_time = (time.time() - start_time) * 1000
-            
-            # Extract transcription from segments
-            current_text = ""
-            for segment in segments:
-                current_text += segment.text + " "
-            
-            current_text = current_text.strip()
-            
-            # Log results
-            if current_text:
-                print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🎤 FASTER WHISPER [{self.step_num:3d}] {process_time:3.0f}ms: '{current_text}'")
-            elif self.step_num % 10 == 0:  # Show progress every 10 processed chunks 
-                print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🔄 [{self.step_num:3d}] Processing...")
-            
-            self.step_num += 1
-            return current_text, process_time
-            
-        except Exception as e:
-            print(f"[Faster Whisper ERROR] Exception in process_audio_chunk: {e}")
-            import traceback
-            traceback.print_exc()
-            return "", 0.0 
+ 
