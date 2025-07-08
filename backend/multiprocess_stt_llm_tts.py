@@ -84,13 +84,21 @@ def keyboard_listener(manual_speech_end_timestamp, manual_audio_heard_timestamp,
         print("⌨️  Manual timing stopped")
         pass
 
-def start_webrtc_server(webrtc_audio_queue, audio_output_webrtc_queue, stt_warmup_flag):
+def start_webrtc_server(webrtc_audio_queue, audio_output_webrtc_queue, audio_output_websocket_queue, stt_warmup_flag):
     """Start WebRTC server in a separate thread"""
     def run_server():
         app = FastAPI(title="WebRTC Audio Server")
         
         # Setup WebRTC routes with both audio queues and warm-up flag
         setup_webrtc_routes(app, webrtc_audio_queue, audio_output_webrtc_queue, stt_warmup_flag)
+        
+        # Setup WebSocket routes
+        from api.routes import router as websocket_router
+        app.include_router(websocket_router, prefix="/api")
+        
+        # Set up WebSocket audio queue
+        from api.routes import set_websocket_audio_queue
+        set_websocket_audio_queue(audio_output_websocket_queue)
         
         # Configure CORS for browser access
         from fastapi.middleware.cors import CORSMiddleware
@@ -102,7 +110,7 @@ def start_webrtc_server(webrtc_audio_queue, audio_output_webrtc_queue, stt_warmu
             allow_headers=["*"],
         )
         
-        print("🌐 Starting WebRTC server on port 8002...")
+        print("🌐 Starting WebRTC + WebSocket server on port 8002...")
         
         # Run server
         config = uvicorn.Config(
@@ -129,6 +137,7 @@ def main():
     audio_queue = multiprocessing.Queue(maxsize=100)  # TTS → AudioProcessor
     webrtc_audio_queue = multiprocessing.Queue(maxsize=1000)  # WebRTC → STT
     audio_output_webrtc_queue = multiprocessing.Queue(maxsize=1000)  # AudioProcessor → WebRTC
+    audio_output_websocket_queue = multiprocessing.Queue(maxsize=1000)  # AudioProcessor → WebSocket
     
     # Create 7 simple timing variables
     manual_speech_end_timestamp = multiprocessing.Value('d', 0.0)
@@ -145,14 +154,14 @@ def main():
     # Shared flag to signal STT warm-up when client connects
     stt_warmup_flag = multiprocessing.Value('i', 0)            # 0 = no warm-up needed, 1 = warm-up needed
     
-    # Start WebRTC server
-    webrtc_thread = start_webrtc_server(webrtc_audio_queue, audio_output_webrtc_queue, stt_warmup_flag)
+    # Start WebRTC + WebSocket server
+    webrtc_thread = start_webrtc_server(webrtc_audio_queue, audio_output_webrtc_queue, audio_output_websocket_queue, stt_warmup_flag)
     
     # Start processes
     stt_process = STTAudioProcess(text_queue, webrtc_audio_queue, last_text_change_timestamp, manual_speech_end_timestamp, stt_warmup_flag)
     llm_process = LLMProcess(text_queue, tts_text_queue, llm_start_timestamp, llm_send_to_tts_timestamp, llm_complete_timestamp)
     tts_process = TTSProcess(tts_text_queue, audio_queue, first_audio_chunk_timestamp)
-    audio_process = AudioProcessor(audio_queue, first_audio_chunk_timestamp, audio_output_webrtc_queue)
+    audio_process = AudioProcessor(audio_queue, first_audio_chunk_timestamp, audio_output_webrtc_queue, audio_output_websocket_queue)
     
     # Start keyboard listener thread for manual timing
     keyboard_thread = threading.Thread(target=keyboard_listener, 
@@ -160,22 +169,7 @@ def main():
     keyboard_thread.daemon = True
     keyboard_thread.start()
     
-    # Dummy text sender to test audio contention (replaces STT)
-    def send_dummy_text():
-        """Send dummy text to LLM to trigger TTS without STT audio input"""
-        time.sleep(2)  # Wait for processes to start
-        dummy_text = "Can I get a beefy 5 layer burrito?"
-        print(f"📤 [DUMMY] Sending dummy text: '{dummy_text}'")
-        text_queue.put(dummy_text)
-        
-        # Set manual speech end timestamp for timing measurement
-        manual_speech_end_timestamp.value = time.time()
-        print(f"📤 [DUMMY] Speech end timestamp set: {manual_speech_end_timestamp.value:.3f}")
-    
-    # # Start dummy text sender thread
-    # dummy_thread = threading.Thread(target=send_dummy_text)
-    # dummy_thread.daemon = True
-    # dummy_thread.start()
+    # Dummy text sender removed - audio pipeline is working correctly
     
     try:
         stt_process.start()

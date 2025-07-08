@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback } from 'react';
 import { AudioMessage } from '../types/order';
 
-// Clean rewrite based on aiortc client.js
+// WebRTC for microphone input, WebSocket + AudioWorklet for TTS output
 export function useWebRTCAudioStream() {
   const [isRecording, setIsRecording] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -9,14 +9,14 @@ export function useWebRTCAudioStream() {
   const [transcription, setTranscription] = useState<string>('');
   const [isTTSPlaying, setIsTTSPlaying] = useState(false);
   
-  // WebRTC refs
+  // WebRTC refs for microphone input
   const pc = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
-  const ttsAudioElement = useRef<HTMLAudioElement | null>(null);
   
-  // AudioContext for low-latency audio playback
+  // WebSocket refs for TTS output
+  const socket = useRef<WebSocket | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
-  const audioSource = useRef<MediaStreamAudioSourceNode | null>(null);
+  const ttsWorkletNode = useRef<AudioWorkletNode | null>(null);
   
   // Track recording state in ref to avoid stale closures
   const isRecordingRef = useRef(false);
@@ -42,331 +42,193 @@ export function useWebRTCAudioStream() {
     }
   };
 
-  /**
-   * Create peer connection - based on aiortc client.js
-   */
-  const createPeerConnection = useCallback((): RTCPeerConnection => {
-    const config: RTCConfiguration = {
-      iceServers: [],
-      rtcpMuxPolicy: 'require',
-      bundlePolicy: 'max-bundle'
-    };
+  // Convert base64 to Int16Array (from RealtimeVoiceChat)
+  const base64ToInt16Array = (b64: string): Int16Array => {
+    console.log('🎵 [Frontend] Converting base64 to Int16Array, length:', b64.length);
+    const raw = atob(b64);
+    const buf = new ArrayBuffer(raw.length);
+    const view = new Uint8Array(buf);
+    for (let i = 0; i < raw.length; i++) {
+      view[i] = raw.charCodeAt(i);
+    }
+    const int16Array = new Int16Array(buf);
+    console.log('🎵 [Frontend] Converted to Int16Array, samples:', int16Array.length);
+    return int16Array;
+  };
 
-    const peerConnection = new RTCPeerConnection(config);
-
-    // Connection state change handler
-    peerConnection.addEventListener('connectionstatechange', () => {
-      console.log('Connection state:', peerConnection.connectionState);
-      
-      if (peerConnection.connectionState === 'connected') {
-        setIsConnected(true);
-        setMessages(prev => [...prev, 'WebRTC: Connected']);
-      } else if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'disconnected') {
-        setIsConnected(false);
-        setMessages(prev => [...prev, 'WebRTC: Disconnected']);
-      }
-    });
-
-    // ICE connection state change handler
-    peerConnection.addEventListener('iceconnectionstatechange', () => {
-      console.log('ICE connection state:', peerConnection.iceConnectionState);
-    });
-
-    // ICE gathering state change handler
-    peerConnection.addEventListener('icegatheringstatechange', () => {
-      console.log('ICE gathering state:', peerConnection.iceGatheringState);
-    });
-
-    // Signaling state change handler
-    peerConnection.addEventListener('signalingstatechange', () => {
-      console.log('Signaling state:', peerConnection.signalingState);
-    });
-
-    // Handle incoming tracks (audio from backend)
-    peerConnection.ontrack = (event) => {
-      console.log('Received track:', event.track.kind, 'from transceiver:', event.transceiver?.direction);
-      
-      // Log the full event object
-      console.log('🎵 Full track event:', event);
-      console.log('🎵 Event transceiver:', event.transceiver);
-      console.log('🎵 Event track:', event.track);
-      
-      if (event.track.kind === 'audio') {
-        // Check if this is our own microphone track being echoed back
-        const isOurTrack = event.track.id === localStream.current?.getAudioTracks()[0]?.id;
-        const trackDirection = event.transceiver?.direction;
+  // Handle WebSocket messages for TTS audio
+  const handleWebSocketMessage = (evt: MessageEvent) => {
+    console.log('🎵 [WebSocket] Raw message received:', evt.data);
+    
+    if (typeof evt.data === "string") {
+      try {
+        const msg = JSON.parse(evt.data);
+        console.log('🎵 [WebSocket] Parsed message:', msg);
+        setMessages(prev => [...prev, `🎵 WebSocket: ${msg.type}`]);
         
-        console.log('🎵 Track details:', {
-          trackId: event.track.id,
-          ourTrackId: localStream.current?.getAudioTracks()[0]?.id,
-          isOurTrack: isOurTrack,
-          transceiverDirection: trackDirection,
-          trackState: event.track.readyState,
-          transceiverIndex: pc.current?.getTransceivers().findIndex(t => t.receiver.track === event.track) ?? -1
-        });
-        
-        // Skip if this appears to be our own microphone track
-        if (isOurTrack) {
-          console.warn('🎤 Ignoring our own microphone track to prevent echo');
-          setMessages(prev => [...prev, '🎤 Ignored own microphone track']);
-          return;
-        }
-        
-        // This should be audio from the backend (TTS or other audio)
-        const mid = event.transceiver?.mid;
-        
-        if (mid === "0") {
-          console.log('🎤 Ignoring audio from MID 0 (processor track)');
-          setMessages(prev => [...prev, '🎤 Processor track received (MID 0) - not playing']);
-          return; // Don't play audio from MID 0
-        } else if (mid === "1") {
-          console.log('🎵 Playing audio from MID 1 (TTS response track)');
-          console.log('🎵 Track details:', {
-            id: event.track.id,
-            kind: event.track.kind,
-            readyState: event.track.readyState,
-            enabled: event.track.enabled
-          });
-          setMessages(prev => [...prev, '🎵 TTS response track received (MID 1)']);
+        if (msg.type === "tts_chunk") {
+          console.log('🎵 [WebSocket] TTS chunk received, length:', msg.content?.length || 0);
+          const int16Data = base64ToInt16Array(msg.content);
+          console.log('🎵 [WebSocket] Decoded audio data length:', int16Data.length);
+          
+          if (ttsWorkletNode.current) {
+            console.log('🎵 [WebSocket] Sending to AudioWorklet');
+            ttsWorkletNode.current.port.postMessage(int16Data);
+            setMessages(prev => [...prev, `🎵 AudioWorklet: Sent ${int16Data.length} samples`]);
+          } else {
+            console.warn('🎵 [WebSocket] AudioWorklet not ready, dropping audio chunk');
+            setMessages(prev => [...prev, '⚠️ AudioWorklet not ready']);
+          }
+        } else if (msg.type === "tts_interruption") {
+          console.log('🎵 [WebSocket] TTS interruption received');
+          if (ttsWorkletNode.current) {
+            ttsWorkletNode.current.port.postMessage({ type: "clear" });
+          }
+          setIsTTSPlaying(false);
+          setMessages(prev => [...prev, '🎵 TTS: Interrupted']);
+        } else if (msg.type === "stop_tts") {
+          console.log('🎵 [WebSocket] TTS stop received');
+          if (ttsWorkletNode.current) {
+            ttsWorkletNode.current.port.postMessage({ type: "clear" });
+          }
+          setIsTTSPlaying(false);
+          setMessages(prev => [...prev, '🎵 TTS: Stopped']);
         } else {
-          console.log(`🎵 Ignoring audio from MID ${mid}`);
-          setMessages(prev => [...prev, `🎵 Audio from MID ${mid} - not playing`]);
-          return; // Don't play audio from unknown MID
+          console.log('🎵 [WebSocket] Unknown message type:', msg.type);
+          setMessages(prev => [...prev, `🎵 WebSocket: Unknown type ${msg.type}`]);
         }
-        
-        // Use the working HTML5 audio approach with better volume control
-        console.log('🎵 Setting up HTML5 audio playback (proven working approach)...');
-        
-        // Create HTML5 audio element (this is what was working before)
+      } catch (e) {
+        console.error("🎵 [WebSocket] Error parsing message:", e);
+        setMessages(prev => [...prev, `❌ WebSocket parse error: ${e}`]);
+      }
+    } else {
+      console.log('🎵 [WebSocket] Non-string message received:', typeof evt.data);
+      setMessages(prev => [...prev, `🎵 WebSocket: Non-string data (${typeof evt.data})`]);
+    }
+  };
+
+  // Setup TTS AudioWorklet (from RealtimeVoiceChat)
+  const setupTTSPlayback = async () => {
+    console.log('🎵 [AudioWorklet] Starting setup...');
+    
+    if (!audioContext.current) {
+      console.log('🎵 [AudioWorklet] Creating new AudioContext...');
+      audioContext.current = new AudioContext({
+        latencyHint: 0.01,  // Ultra-low latency
+        sampleRate: 48000    // Match WebRTC sample rate
+      });
+      console.log('🎵 [AudioWorklet] AudioContext created, state:', audioContext.current.state);
+    } else {
+      console.log('🎵 [AudioWorklet] Using existing AudioContext, state:', audioContext.current.state);
+    }
+
+    try {
+      console.log('🎵 [AudioWorklet] Loading processor module...');
+      await audioContext.current.audioWorklet.addModule('/ttsPlaybackProcessor.js');
+      console.log('🎵 [AudioWorklet] Processor module loaded successfully');
+      
+      console.log('🎵 [AudioWorklet] Creating AudioWorkletNode...');
+      ttsWorkletNode.current = new AudioWorkletNode(
+        audioContext.current,
+        'tts-playback-processor'
+      );
+      console.log('🎵 [AudioWorklet] AudioWorkletNode created');
+
+      ttsWorkletNode.current.port.onmessage = (event) => {
+        console.log('🎵 [AudioWorklet] Message from processor:', event.data);
+        const { type } = event.data;
+        if (type === 'ttsPlaybackStarted') {
+          if (!isTTSPlaying && socket.current && socket.current.readyState === WebSocket.OPEN) {
+            setIsTTSPlaying(true);
+            console.log("🎵 [AudioWorklet] TTS playback started");
+            socket.current.send(JSON.stringify({ type: 'tts_start' }));
+            setMessages(prev => [...prev, '🎵 AudioWorklet: Playback started']);
+          }
+        } else if (type === 'ttsPlaybackStopped') {
+          if (isTTSPlaying && socket.current && socket.current.readyState === WebSocket.OPEN) {
+            setIsTTSPlaying(false);
+            console.log("🎵 [AudioWorklet] TTS playback stopped");
+            socket.current.send(JSON.stringify({ type: 'tts_stop' }));
+            setMessages(prev => [...prev, '🎵 AudioWorklet: Playback stopped']);
+          }
+        }
+      };
+      
+      console.log('🎵 [AudioWorklet] Connecting to destination...');
+      ttsWorkletNode.current.connect(audioContext.current.destination);
+      console.log('🎵 [AudioWorklet] Connected to destination');
+      
+      console.log('🎵 TTS AudioWorklet setup complete');
+      setMessages(prev => [...prev, '🎵 TTS AudioWorklet: Ready']);
+    } catch (error) {
+      console.error('🎵 [AudioWorklet] Failed to setup TTS AudioWorklet:', error);
+      setMessages(prev => [...prev, `❌ TTS AudioWorklet: Setup failed - ${error}`]);
+    }
+  };
+
+  // Create WebRTC peer connection for microphone input
+  const createPeerConnection = useCallback(() => {
+    const peerConnection = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' }
+      ]
+    });
+
+    // Handle incoming tracks (microphone echo - we'll ignore this)
+    peerConnection.ontrack = (event) => {
+      // Mute any WebRTC audio playback for debugging
+      if (event.track.kind === 'audio') {
         const audio = new Audio();
         audio.srcObject = new MediaStream([event.track]);
-        audio.autoplay = true;
-        audio.volume = 1.0; // Full volume for testing
-        ttsAudioElement.current = audio;
-        
-        console.log('🎵 HTML5 audio element created:', {
-          srcObject: audio.srcObject,
-          autoplay: audio.autoplay,
-          volume: audio.volume,
-          readyState: audio.readyState
-        });
-        
-        // Add event listeners for audio element
-        audio.onplay = () => {
-          console.log('🎵 HTML5 Audio: play event fired');
-          setIsTTSPlaying(true);
-          setMessages(prev => [...prev, '🎵 HTML5 Audio: playing']);
-        };
-        
-        audio.onended = () => {
-          console.log('🎵 HTML5 Audio: ended event fired');
-          setIsTTSPlaying(false);
-          setMessages(prev => [...prev, '🎵 HTML5 Audio: ended']);
-        };
-        
-        audio.onerror = (error: string | Event) => {
-          console.error('🎵 HTML5 Audio error:', error);
-          setMessages(prev => [...prev, '❌ HTML5 Audio: Error']);
-        };
-        
-        audio.oncanplay = () => {
-          console.log('🎵 HTML5 Audio: canplay event fired');
-          setMessages(prev => [...prev, '🎵 HTML5 Audio: can play']);
-        };
-        
-        audio.onloadstart = () => {
-          console.log('🎵 HTML5 Audio: loadstart event fired');
-          setMessages(prev => [...prev, '🎵 HTML5 Audio: loadstart']);
-        };
-        
-        audio.onloadeddata = () => {
-          console.log('🎵 HTML5 Audio: loadeddata event fired');
-          setMessages(prev => [...prev, '🎵 HTML5 Audio: loaded data']);
-        };
-        
-        setMessages(prev => [...prev, '🎵 HTML5 Audio: Element created and configured']);
-        
-        // Debug: Log WebRTC stats to see if audio is flowing
-        setTimeout(() => {
-          pc.current?.getStats().then(stats => {
-            console.log('🎵 WebRTC Stats:');
-            stats.forEach(report => {
-              if (report.type === 'inbound-rtp' && report.kind === 'audio') {
-                console.log('🎵 Audio RTP Stats:', {
-                  packetsReceived: report.packetsReceived,
-                  bytesReceived: report.bytesReceived,
-                  packetsLost: report.packetsLost,
-                  jitter: report.jitter,
-                  timestamp: report.timestamp
-                });
-              }
-            });
-          });
-        }, 2000);
-        
-        // Set TTS playing state
-        setIsTTSPlaying(true);
-        setMessages(prev => [...prev, '🎵 Audio: Track received and configured']);
-        
-        // Add simple audio level monitoring for HTML5 audio
-        if (ttsAudioElement.current) {
-          const audio = ttsAudioElement.current;
-          
-          // Monitor audio element state
-          const checkAudioState = () => {
-            console.log('🎵 HTML5 Audio state:', {
-              readyState: audio.readyState,
-              paused: audio.paused,
-              currentTime: audio.currentTime,
-              duration: audio.duration,
-              volume: audio.volume
-            });
-            
-            // Continue monitoring for 10 seconds
-            if (Date.now() - startTime < 10000) {
-              setTimeout(checkAudioState, 1000);
-            }
-          };
-          
-          const startTime = Date.now();
-          setTimeout(checkAudioState, 1000);
-        }
-        
-        // Add track event listeners to monitor data flow
-        event.track.onended = () => {
-          console.log('🎵 Track ended');
-          setIsTTSPlaying(false);
-          setMessages(prev => [...prev, '🎵 Track ended']);
-        };
-        
-        event.track.onmute = () => {
-          console.log('🎵 Track muted');
-          setIsTTSPlaying(false);
-          setMessages(prev => [...prev, '🎵 Track muted']);
-        };
-        
-        event.track.onunmute = () => {
-          console.log('🎵 Track unmuted');
-          setIsTTSPlaying(true);
-          setMessages(prev => [...prev, '🎵 Track unmuted']);
-        };
-        
-        console.log('🎵 Low-latency audio playback configured');
-        setMessages(prev => [...prev, '🎵 Low-latency audio: Ready to play']);
+        audio.autoplay = false; // Do not autoplay
+        audio.volume = 0; // Mute
+        // Optionally, attach to DOM for debugging: document.body.appendChild(audio);
+        setMessages(prev => [...prev, '🔇 WebRTC audio track received and muted (playback disabled)']);
       }
+      setMessages(prev => [...prev, '🎤 Microphone track received (ignored for echo)']);
     };
 
     return peerConnection;
   }, []);
 
   /**
-   * Negotiate - based on aiortc client.js
-   */
-  const negotiate = useCallback(async (): Promise<void> => {
-    if (!pc.current) return;
-
-    console.log('Starting negotiation...');
-    setMessages(prev => [...prev, 'Starting negotiation...']);
-
-    try {
-      await pc.current.setLocalDescription(await pc.current.createOffer());
-      
-      // Wait for ICE gathering to complete
-      await new Promise<void>((resolve) => {
-        if (pc.current!.iceGatheringState === 'complete') {
-          resolve();
-        } else {
-          function checkState() {
-            if (pc.current!.iceGatheringState === 'complete') {
-              pc.current!.removeEventListener('icegatheringstatechange', checkState);
-              resolve();
-            }
-          }
-          pc.current!.addEventListener('icegatheringstatechange', checkState);
-        }
-      });
-
-      const offer = pc.current!.localDescription!;
-      
-              console.log('📤 SDP Offer created');
-        setMessages(prev => [...prev, '📤 SDP Offer created']);
-      
-      const response = await fetch('http://localhost:8002/api/webrtc/offer', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          sdp: offer.sdp,
-          type: offer.type,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-              const answer = await response.json();
-        console.log('📥 SDP Answer received');
-        setMessages(prev => [...prev, '📥 SDP Answer received']);
-      
-      await pc.current!.setRemoteDescription(answer);
-    } catch (error) {
-      console.error('Negotiation error:', error);
-      setMessages(prev => [...prev, `Negotiation error: ${(error as any).message}`]);
-      throw error;
-    }
-  }, []);
-
-  /**
-   * Start - based on aiortc client.js
+   * Start - WebRTC for microphone, WebSocket for TTS
    */
   const start = useCallback(async (): Promise<void> => {
-    console.log('Starting WebRTC connection...');
-    setMessages(prev => [...prev, 'Starting WebRTC connection...']);
+    console.log('Starting WebRTC + WebSocket connection...');
+    setMessages(prev => [...prev, 'Starting WebRTC + WebSocket connection...']);
 
-    // Initialize low-latency AudioContext
-    if (!audioContext.current) {
-      try {
-        audioContext.current = new AudioContext({
-          latencyHint: 0.01,  // Ultra-low latency: 10ms target
-          sampleRate: 48000    // Match WebRTC sample rate
-        });
-        
-        console.log('🎵 AudioContext created, state:', audioContext.current.state);
-        
-        // Resume the AudioContext (required for some browsers)
-        await audioContext.current.resume();
-        
-        console.log('🎵 AudioContext resumed, state:', audioContext.current.state);
-        setMessages(prev => [...prev, `🎵 AudioContext: ${audioContext.current.state}`]);
-        
-        // Test audio context is working
-        if (audioContext.current.state === 'running') {
-          console.log('🎵 AudioContext is running and ready for audio');
-        } else {
-          console.warn('🎵 AudioContext is not running, state:', audioContext.current.state);
-        }
-      } catch (error) {
-        console.error('🎵 Failed to create AudioContext:', error);
-        setMessages(prev => [...prev, '❌ AudioContext creation failed']);
-      }
-    } else {
-      console.log('🎵 AudioContext already exists, state:', audioContext.current?.state);
+    // Setup WebSocket for TTS audio
+    const wsUrl = 'ws://localhost:8002/api/ws';
+    console.log('🎵 [WebSocket] Connecting to:', wsUrl);
+    socket.current = new WebSocket(wsUrl);
+
+    socket.current.onopen = async () => {
+      console.log('🎵 [WebSocket] Connection opened successfully');
+      setMessages(prev => [...prev, '🎵 WebSocket: Connected for TTS']);
       
-      // Ensure AudioContext is resumed
-      if (audioContext.current && audioContext.current.state !== 'running') {
-        try {
-          const context = audioContext.current;
-          await context.resume();
-          console.log('🎵 AudioContext resumed, new state:', context.state);
-        } catch (error) {
-          console.error('🎵 Failed to resume AudioContext:', error);
-        }
-      }
-    }
+      // Setup TTS AudioWorklet
+      console.log('🎵 [WebSocket] Setting up AudioWorklet...');
+      await setupTTSPlayback();
+    };
 
-    // Create peer connection
+    socket.current.onmessage = (evt) => {
+      console.log('🎵 [WebSocket] Message received:', evt.data.substring(0, 100) + '...');
+      setMessages(prev => [...prev, `🎵 WebSocket: Received message (${evt.data.length} chars)`]);
+      handleWebSocketMessage(evt);
+    };
+
+    socket.current.onclose = (event) => {
+      console.log('🎵 [WebSocket] Connection closed:', event.code, event.reason);
+      setMessages(prev => [...prev, `🎵 WebSocket: Closed (${event.code})`]);
+    };
+
+    socket.current.onerror = (err) => {
+      console.error('🎵 [WebSocket] Connection error:', err);
+      setMessages(prev => [...prev, '❌ WebSocket: Error']);
+    };
+
+    // Create WebRTC peer connection for microphone
     pc.current = createPeerConnection();
 
     // Get user media - audio only with high quality settings
@@ -388,97 +250,98 @@ export function useWebRTCAudioStream() {
       console.log('Microphone access granted');
       setMessages(prev => [...prev, 'Microphone access granted']);
 
-      // Create two transceivers: transceiver 0 for microphone, transceiver 1 for TTS audio
-      
-      // Transceiver 0: for sending microphone audio to backend
-      const micTransceiver = pc.current.addTransceiver('audio', {
-        direction: 'sendrecv'
-      });
-      console.log('🎤 Added microphone transceiver (index 0, MID:', micTransceiver.mid, ')');
-      setMessages(prev => [...prev, `🎤 Microphone transceiver added (MID: ${micTransceiver.mid})`]);
-
-      // Transceiver 1: for receiving TTS audio from backend
-      const ttsTransceiver = pc.current.addTransceiver('audio', {
-        direction: 'sendrecv'
-      });
-      console.log('🎵 Added TTS transceiver (index 1, MID:', ttsTransceiver.mid, ')');
-      setMessages(prev => [...prev, `🎵 TTS transceiver added (MID: ${ttsTransceiver.mid})`]);
-
-      // Add the microphone track to transceiver 0
+      // Add microphone track to WebRTC
       const audioTrack = stream.getAudioTracks()[0];
       if (audioTrack) {
-        micTransceiver.sender.replaceTrack(audioTrack);
-        console.log('🎤 Added microphone track to transceiver 0');
-        setMessages(prev => [...prev, '🎤 Microphone track added to transceiver 0']);
+        pc.current.addTrack(audioTrack, stream);
+        console.log('🎤 Added microphone track to WebRTC');
+        setMessages(prev => [...prev, '🎤 Microphone track added to WebRTC']);
       }
 
-              // Log transceiver setup
-        console.log('🔍 Transceivers setup complete');
-        setMessages(prev => [...prev, '🔍 Transceivers setup complete']);
+      // Create offer and send to backend
+      const offer = await pc.current.createOffer();
+      await pc.current.setLocalDescription(offer);
 
-      // Start negotiation
-      await negotiate();
+      const response = await fetch('http://localhost:8002/api/webrtc/offer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sdp: pc.current.localDescription?.sdp,
+          type: pc.current.localDescription?.type,
+        }),
+      });
 
-      setIsRecording(true);
-      isRecordingRef.current = true;
-      console.log('WebRTC recording started');
-      setMessages(prev => [...prev, 'WebRTC: Recording started']);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const { sdp: answerSdp, type: answerType } = await response.json();
+      const answer = new RTCSessionDescription({ sdp: answerSdp, type: answerType });
+      await pc.current.setRemoteDescription(answer);
+
+      console.log('WebRTC connection established');
+      setMessages(prev => [...prev, 'WebRTC: Connection established']);
+      setIsConnected(true);
 
     } catch (error) {
-      console.error('Error starting WebRTC:', error);
-      setMessages(prev => [...prev, `Error: ${(error as any).message}`]);
-      await stop();
-      throw error;
+      console.error('Failed to start:', error);
+      setMessages(prev => [...prev, `❌ Failed to start: ${error}`]);
     }
-  }, [createPeerConnection, negotiate]);
+  }, [createPeerConnection]);
 
-  /**
-   * Stop - based on aiortc client.js
-   */
   const stop = useCallback(async (): Promise<void> => {
-    console.log('Stopping WebRTC connection...');
-    
-    setIsRecording(false);
+    console.log('Stopping recording...');
+    setMessages(prev => [...prev, 'Stopping recording...']);
+
     isRecordingRef.current = false;
+    setIsRecording(false);
     setIsConnected(false);
-    setIsTTSPlaying(false);
 
-    // Stop local stream tracks
-    if (localStream.current) {
-      localStream.current.getTracks().forEach((track) => {
-        track.stop();
-      });
-      localStream.current = null;
+    // Close WebSocket
+    if (socket.current) {
+      socket.current.close();
+      socket.current = null;
     }
 
-    // Disconnect audio source
-    if (audioSource.current) {
-      audioSource.current.disconnect();
-      audioSource.current = null;
-    }
-
-    // Close peer connection
+    // Close WebRTC connection
     if (pc.current) {
       pc.current.close();
       pc.current = null;
     }
 
-    console.log('WebRTC connection stopped');
-    setMessages(prev => [...prev, 'WebRTC: Connection stopped']);
+    // Stop microphone stream
+    if (localStream.current) {
+      localStream.current.getTracks().forEach(track => track.stop());
+      localStream.current = null;
+    }
+
+    // Cleanup AudioWorklet
+    if (ttsWorkletNode.current) {
+      ttsWorkletNode.current.disconnect();
+      ttsWorkletNode.current = null;
+    }
+
+    // Close AudioContext
+    if (audioContext.current) {
+      await audioContext.current.close();
+      audioContext.current = null;
+    }
+
+    console.log('Recording stopped');
+    setMessages(prev => [...prev, 'Recording stopped']);
   }, []);
 
-  const toggleRecording = async () => {
-    try {
-      if (isRecording) {
-        await stop();
-      } else {
-        await start();
-      }
-    } catch (error) {
-      console.error('Error toggling recording:', error);
-      alert(`Could not ${isRecording ? 'stop' : 'start'} recording: ${(error as any).message}`);
+  const toggleRecording = useCallback(async (): Promise<void> => {
+    if (isRecordingRef.current) {
+      await stop();
+    } else {
+      isRecordingRef.current = true;
+      setIsRecording(true);
+      await start();
     }
-  };
+  }, [start, stop]);
 
   // Cleanup function
   const cleanup = useCallback(async () => {
@@ -491,7 +354,6 @@ export function useWebRTCAudioStream() {
     if (audioContext.current) {
       await audioContext.current.close();
       audioContext.current = null;
-      console.log('🎵 AudioContext closed');
     }
   }, [stop]); // Use ref to avoid stale closures
 

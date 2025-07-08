@@ -25,7 +25,7 @@ export function useOrder() {
   const fetchOrder = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch('http://localhost:8000/api/order');
+      const response = await fetch('http://localhost:8002/api/order');
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -49,7 +49,7 @@ export function useOrder() {
       return;
     }
 
-    const ws = new WebSocket('ws://localhost:8000/ws/order');
+    const ws = new WebSocket('ws://localhost:8002/ws/order');
     
     ws.onopen = () => {
       websocketRef.current = ws;
@@ -83,7 +83,7 @@ export function useOrder() {
   // Clear order
   const clearOrder = async () => {
     try {
-      await fetch('http://localhost:8000/api/order/clear', {
+      await fetch('http://localhost:8002/api/order/clear', {
         method: 'POST',
       });
       // Don't manually update order here - let WebSocket update handle it

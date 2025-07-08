@@ -1,163 +1,193 @@
 """
-API routes for the AI Order Taker backend.
-
-This module provides:
-- WebSocket endpoints for order streaming
-- HTTP endpoints for file uploads and order management
-- Static file serving
+FastAPI routes for the speech processing API
 """
 
 import asyncio
+import base64
 import json
-import logging
+import multiprocessing
+import queue
 import time
-from pathlib import Path
-from typing import List
+from typing import Dict, Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import JSONResponse
 
-from processors.llm import OrderItem
-from utils.latency import LatencyLogger
+# WebRTC functions will be imported from main app setup
 
-logger = logging.getLogger(__name__)
+router = APIRouter()
 
-# Global state (in production, use proper state management)
-current_order: List[OrderItem] = []
-order_connections: List[WebSocket] = []
+# Global state for WebSocket connections
+websocket_connections: Dict[str, WebSocket] = {}
+connection_audio_queues: Dict[str, multiprocessing.Queue] = {}
 
-# Initialize latency logger
-latency_logger = LatencyLogger()
+# Global WebSocket audio queue (will be set by main app)
+websocket_audio_queue: multiprocessing.Queue = None  # type: ignore
 
-def setup_routes(app: FastAPI, stt_processor, llm_reasoner, tts_processor):
-    """Set up all API routes for the FastAPI app"""
+def set_websocket_audio_queue(queue: multiprocessing.Queue):
+    """Set the global WebSocket audio queue"""
+    global websocket_audio_queue
+    websocket_audio_queue = queue
+
+# WebRTC endpoint is handled in webrtc.py
+
+@router.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for TTS audio streaming"""
+    print(f"🎵 [WebSocket] New connection attempt...")
+    await websocket.accept()
+    connection_id = f"ws_{int(time.time() * 1000)}"
     
-
-    @app.websocket("/ws/order")
-    async def websocket_order(websocket: WebSocket):
-        """WebSocket endpoint for order updates"""
-        await websocket.accept()
-        order_connections.append(websocket)
+    print(f"🎵 [WebSocket] Client connected: {connection_id}")
+    
+    try:
+        # Store connection
+        websocket_connections[connection_id] = websocket
         
-        logger.info("Order WebSocket connected")
+        # Use the global WebSocket audio queue (shared by all connections)
+        if websocket_audio_queue is None:
+            print("❌ [WebSocket] Global WebSocket audio queue not set!")
+            await websocket.close()
+            return
         
-        try:
-            # Send current order on connect
-            order_data = {
-                "items": [item.dict() for item in current_order],
-                "total": sum(item.price * item.quantity for item in current_order)
-            }
-            await websocket.send_text(json.dumps(order_data))
-            
-            # Keep connection alive
-            while True:
-                await asyncio.sleep(1)
-                
-        except WebSocketDisconnect:
-            logger.info("Order WebSocket disconnected")
-            if websocket in order_connections:
-                order_connections.remove(websocket)
-
-
-    async def broadcast_order_update():
-        """Broadcast order updates to all connected clients"""
-        order_data = {
-            "items": [item.dict() for item in current_order],
-            "total": sum(item.price * item.quantity for item in current_order)
-        }
+        print(f"🎵 [WebSocket] Using global audio queue for {connection_id}")
         
-        # Send to all connected order WebSocket clients
-        disconnected_connections = []
-        for connection in order_connections:
+        # Start TTS audio streaming task
+        streaming_task = asyncio.create_task(
+            stream_tts_audio(websocket, websocket_audio_queue, connection_id)
+        )
+        
+        # Handle incoming messages
+        while True:
             try:
-                await connection.send_text(json.dumps(order_data))
+                data = await websocket.receive_text()
+                message = json.loads(data)
+                
+                if message.get("type") == "tts_start":
+                    print(f"🎵 [WebSocket] TTS started for {connection_id}")
+                elif message.get("type") == "tts_stop":
+                    print(f"🎵 [WebSocket] TTS stopped for {connection_id}")
+                    
+            except WebSocketDisconnect:
+                break
             except Exception as e:
-                logger.error(f"Error broadcasting to order connection: {e}")
-                disconnected_connections.append(connection)
+                print(f"❌ [WebSocket] Error handling message: {e}")
+                break
+                
+    except WebSocketDisconnect:
+        print(f"🎵 [WebSocket] Client disconnected: {connection_id}")
+    except Exception as e:
+        print(f"❌ [WebSocket] Error in websocket endpoint: {e}")
+    finally:
+        # Cleanup
+        if connection_id in websocket_connections:
+            del websocket_connections[connection_id]
         
-        # Remove disconnected connections
-        for connection in disconnected_connections:
-            if connection in order_connections:
-                order_connections.remove(connection)
+        # Cancel streaming task
+        if 'streaming_task' in locals():
+            streaming_task.cancel()
+            try:
+                await streaming_task
+            except asyncio.CancelledError:
+                pass
+        
+        print(f"🎵 [WebSocket] Cleanup complete for {connection_id}")
 
-    @app.post("/api/upload-menu")
-    async def upload_menu(file: UploadFile = File(...)):
-        """Upload menu file (text or image)"""
+async def stream_tts_audio(websocket: WebSocket, audio_queue: multiprocessing.Queue, connection_id: str):
+    """Stream TTS audio chunks to WebSocket client"""
+    print(f"🎵 [WebSocket] Starting TTS audio streaming for {connection_id}")
+    chunk_count = 0
+    empty_count = 0
+    
+    try:
+        while True:
+            # Check if WebSocket is still connected
+            if websocket.client_state.value > 2:  # WebSocket is closed
+                print(f"🎵 [WebSocket] WebSocket closed for {connection_id}")
+                break
+                
+            try:
+                # Get audio chunk from the connection's audio queue (non-blocking)
+                audio_chunk = audio_queue.get_nowait()
+                chunk_count += 1
+                empty_count = 0  # Reset empty count
+                
+                # Convert to base64
+                audio_bytes = audio_chunk.tobytes()
+                base64_chunk = base64.b64encode(audio_bytes).decode('utf-8')
+                
+                # Send to client
+                message = {
+                    "type": "tts_chunk",
+                    "content": base64_chunk
+                }
+                await websocket.send_text(json.dumps(message))
+                
+                if chunk_count % 10 == 0:  # Log every 10 chunks
+                    print(f"🎵 [WebSocket] Sent {chunk_count} audio chunks to {connection_id}")
+                
+            except queue.Empty:
+                # No audio data available, wait a bit
+                empty_count += 1
+                if empty_count % 100 == 0:  # Log every 100 empty checks
+                    print(f"🎵 [WebSocket] No audio data available for {connection_id} (empty count: {empty_count})")
+                await asyncio.sleep(0.01)
+            except Exception as e:
+                print(f"❌ [WebSocket] Error streaming audio: {e}")
+                break
+                
+    except asyncio.CancelledError:
+        print(f"🎵 [WebSocket] TTS streaming cancelled for {connection_id}")
+    except Exception as e:
+        print(f"❌ [WebSocket] Error in TTS streaming: {e}")
+    finally:
+        print(f"🎵 [WebSocket] TTS streaming ended for {connection_id}, sent {chunk_count} chunks")
+
+def send_tts_audio_to_websocket(connection_id: str, audio_chunk):
+    """Send TTS audio chunk to WebSocket client (called from TTS process)"""
+    if connection_id in connection_audio_queues:
         try:
-            # Save uploaded file
-            file_path = Path("uploads") / file.filename
-            content = await file.read()
-            
-            with open(file_path, "wb") as f:
-                f.write(content)
-            
-            # Process based on file type
-            if file.content_type.startswith("text/"):
-                # Text file - save directly to menus
-                menu_path = Path("menus") / f"{file.filename}.txt"
-                with open(menu_path, "wb") as f:
-                    f.write(content)
-                
-                logger.info(f"Saved text menu: {menu_path}")
-                
-            elif file.content_type.startswith("image/"):
-                # Image file - stub OCR processing
-                logger.info(f"Image uploaded: {file_path} (OCR processing stubbed)")
-                
-                # Stub: In real implementation, use OCR to extract text
-                extracted_text = "Menu extracted from image (stub)"
-                menu_path = Path("menus") / f"{file.filename}.txt"
-                with open(menu_path, "w") as f:
-                    f.write(extracted_text)
-            
-            # Reload menu context
-            llm_reasoner.menu_context = llm_reasoner.load_menu_context()
-            
-            return {"message": "Menu uploaded successfully", "filename": file.filename}
-            
+            connection_audio_queues[connection_id].put_nowait(audio_chunk)
         except Exception as e:
-            logger.error(f"Error uploading menu: {e}")
-            return {"error": str(e)}
+            print(f"❌ [WebSocket] Error sending audio to {connection_id}: {e}")
 
-    @app.get("/api/order")
-    async def get_current_order():
-        """Get current order"""
-        return {
-            "items": [item.dict() for item in current_order],
-            "total": sum(item.price * item.quantity for item in current_order)
-        }
+@router.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy", "timestamp": time.time()}
 
-    @app.post("/api/order/clear")
-    async def clear_order():
-        """Clear current order"""
-        global current_order
-        current_order = []
-        await broadcast_order_update()
-        return {"message": "Order cleared"}
+# Order API endpoints
+@router.get("/order")
+async def get_order():
+    """Get current order"""
+    # Placeholder - return empty order for now
+    return {"items": [], "total": 0}
 
-    @app.get("/")
-    async def root():
-        """Serve the React app in production, API info in development"""
-        # Check if we have static files (production mode)
-        static_dir = Path("static")
-        if static_dir.exists() and (static_dir / "index.html").exists():
-            return FileResponse("static/index.html")
-        else:
-            # Development mode - just return API info
-            return {"message": "AI Order Taker Backend - Development Mode"}
+@router.post("/order/clear")
+async def clear_order():
+    """Clear current order"""
+    # Placeholder - just return success
+    return {"status": "cleared"}
 
-    # Catch-all route for React Router (must be last)
-    @app.get("/{path:path}")
-    async def serve_react_app(path: str):
-        """Serve React app for any non-API route"""
-        static_dir = Path("static")
-        if static_dir.exists() and (static_dir / "index.html").exists():
-            # Try to serve the specific file first
-            file_path = static_dir / path
-            if file_path.exists() and file_path.is_file():
-                return FileResponse(str(file_path))
-            # Otherwise serve index.html (React Router will handle routing)
-            return FileResponse("static/index.html")
-        else:
-            # Development mode - return 404
-            raise HTTPException(status_code=404, detail="Not found")
+@router.websocket("/ws/order")
+async def order_websocket(websocket: WebSocket):
+    """WebSocket endpoint for order updates"""
+    await websocket.accept()
+    print("📋 [Order] Client connected to order WebSocket")
+    
+    try:
+        # Send initial order state
+        await websocket.send_text(json.dumps({"items": [], "total": 0}))
+        
+        # Keep connection alive
+        while True:
+            try:
+                data = await websocket.receive_text()
+                # Handle order updates if needed
+                print(f"📋 [Order] Received message: {data}")
+            except WebSocketDisconnect:
+                break
+    except WebSocketDisconnect:
+        print("📋 [Order] Client disconnected from order WebSocket")
+    except Exception as e:
+        print(f"❌ [Order] Error in order WebSocket: {e}")

@@ -16,11 +16,12 @@ class AudioProcessor(Process):
     test_tts_audio_minimal.py structure for optimal performance.
     """
     
-    def __init__(self, audio_queue, first_audio_chunk_timestamp, audio_output_webrtc_queue):
+    def __init__(self, audio_queue, first_audio_chunk_timestamp, audio_output_webrtc_queue, audio_output_websocket_queue=None):
         super().__init__(name="AudioProcess")
         self.audio_queue = audio_queue  # multiprocessing.Queue
         self.first_audio_chunk_timestamp = first_audio_chunk_timestamp
         self.audio_output_webrtc_queue = audio_output_webrtc_queue  # Queue for WebRTC audio output
+        self.audio_output_websocket_queue = audio_output_websocket_queue  # Queue for WebSocket audio output
         
         # Audio processing parameters for WebRTC
         self.tts_sample_rate = 24000  # TTS output rate
@@ -100,6 +101,17 @@ class AudioProcessor(Process):
                     frames_sent += 1
                 except queue.Full:
                     print("⚠️ [AudioProcessor] WebRTC queue full, skipping frame")
+                
+                # Send single frame to WebSocket queue
+                if self.audio_output_websocket_queue is not None:
+                    try:
+                        self.audio_output_websocket_queue.put_nowait(frame_int16)
+                        if frames_sent % 50 == 0:  # Log every 50 frames
+                            print(f"🎵 [AudioProcessor] Sent {frames_sent} frames to WebSocket queue")
+                    except queue.Full:
+                        print("⚠️ [AudioProcessor] WebSocket queue full, skipping frame")
+                else:
+                    print("❌ [AudioProcessor] WebSocket queue is None!")
             
             if frames_sent > 0:
                 print(f"🎵 [AudioProcessor] Sent {frames_sent} frames, buffer remaining: {len(self.audio_buffer)} samples")
