@@ -135,7 +135,7 @@ class AudioProcessorTrack(MediaStreamTrack):
         
         # Save last 5 seconds to file every 200 frames (for testing)
         if self.frame_count % 200 == 0:
-            self.save_last_5_seconds_to_wav(f"audio_recording_{self.connection_id}_{self.frame_count}.wav")
+            self.save_last_5_seconds_to_wav(f"STT_debug_audio/audio_recording_{self.connection_id}_{self.frame_count}.wav")
         
         return frame
     

@@ -180,7 +180,7 @@ class TTSProcess(Process):
             if len(complete_audio.shape) > 1:
                 complete_audio = complete_audio.flatten()
             
-            debug_filename = f"debug_tts_audio_{int(time_module.time())}.wav"
+            debug_filename = f"debug_tts_audio/debug_tts_audio_{int(time_module.time())}.wav"
             sf.write(debug_filename, complete_audio, sample_rate, format='WAV', subtype='PCM_16')
             print(f"🔍 Audio saved to: {debug_filename}")
             
