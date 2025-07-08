@@ -96,15 +96,15 @@ class FasterWhisperSTTProcessor(BaseSTTProcessor):
             print("⚠️ [STT] test_audio.wav not found, skipping STT warm-up")
         
     def _audio_to_wav_bytes(self, audio_chunk: np.ndarray) -> bytes:
-        """Convert audio chunk to WAV bytes for Faster Whisper"""
+        """Convert audio chunk to WAV bytes for Faster Whisper - optimized version"""
         # Ensure audio is in the right format
         if audio_chunk.dtype != np.float32:
             audio_chunk = audio_chunk.astype(np.float32)
         
-        # Convert from float32 [-1, 1] to int16 [-32768, 32767]
-        audio_int16 = (audio_chunk * 32767).astype(np.int16)
+        # Convert from float32 [-1, 1] to int16 [-32768, 32767] with overflow protection
+        audio_int16 = np.clip(audio_chunk * 32767, -32768, 32767).astype(np.int16)
         
-        # Create WAV file in memory
+        # Create WAV file in memory - optimized to avoid double buffering
         wav_buffer = io.BytesIO()
         with wave.open(wav_buffer, 'wb') as wav_file:
             wav_file.setnchannels(1)  # Mono

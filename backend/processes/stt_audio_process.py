@@ -1,7 +1,6 @@
 """
 STT + WebRTC Audio Process
 Processes audio from WebRTC connections and performs speech-to-text processing.
-No longer captures from microphone - only processes WebRTC audio input.
 """
 
 import sys
@@ -11,11 +10,6 @@ import multiprocessing
 import numpy as np
 import queue
 import time
-import soundfile as sf
-import io
-import wave
-import tempfile
-import threading
 
 # Add the backend directory to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,48 +17,17 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from processors.stt import create_stt_processor
 
 # Audio configuration
-SAMPLE_RATE = 16000  # Match frontend and NeMo STT sample rate
+SAMPLE_RATE = 16000  # Match frontend and STT sample rate
 CHUNK_DURATION_MS = 20  # ms chunks for real-time processing
 
 # Silence detection parameters
 SILENCE_THRESHOLD = 0.005  # RMS threshold for silence detection
 SILENCE_TIMEOUT_MS = 300  # 300ms of silence triggers transcription
 
-def record_mic_buffer(mic_record_buffer, audio_data, last_record_time, sample_rate=16000, record_seconds=5, record_filename="debug_mic_input.wav"):
-    """Accumulate audio data, keep last N seconds, and save to file every N seconds."""
-    mic_record_buffer = np.concatenate([mic_record_buffer, audio_data])
-    max_samples = sample_rate * record_seconds
-    if len(mic_record_buffer) > max_samples:
-        mic_record_buffer = mic_record_buffer[-max_samples:]
-    now = time.time()
-    if now - last_record_time > record_seconds:
-        sf.write(record_filename, mic_record_buffer, sample_rate)
-        last_record_time = now
-    return mic_record_buffer, last_record_time
-
 def detect_silence(audio_chunk):
     """Detect if audio chunk is silence based on RMS"""
     rms = np.sqrt(np.mean(audio_chunk**2))
     return rms < SILENCE_THRESHOLD
-
-def audio_to_wav_bytes(audio_array: np.ndarray, sample_rate: int = 16000) -> bytes:
-    """Convert audio array to WAV bytes for STT processing"""
-    # Ensure audio is in the right format
-    if audio_array.dtype != np.float32:
-        audio_array = audio_array.astype(np.float32)
-    
-    # Convert from float32 [-1, 1] to int16 [-32768, 32767]
-    audio_int16 = (audio_array * 32767).astype(np.int16)
-    
-    # Create WAV file in memory
-    wav_buffer = io.BytesIO()
-    with wave.open(wav_buffer, 'wb') as wav_file:
-        wav_file.setnchannels(1)  # Mono
-        wav_file.setsampwidth(2)  # 16-bit
-        wav_file.setframerate(sample_rate)
-        wav_file.writeframes(audio_int16.tobytes())
-    
-    return wav_buffer.getvalue()
 
 class STTAudioProcess(multiprocessing.Process):
     """Process that handles WebRTC audio input and STT processing"""
@@ -96,7 +59,7 @@ class STTAudioProcess(multiprocessing.Process):
         
         # Initialize STT processor
         print("📝 Initializing STT processor...")
-        stt_processor = create_stt_processor("faster-whisper", model_size="tiny", device="cuda", compute_type="int8_float16")
+        stt_processor = create_stt_processor("faster-whisper", model_size="base", device="cuda", compute_type="int8_float16")
         # Set the manual speech end timestamp on the processor for timing measurements
         stt_processor.set_manual_speech_end_timestamp(self.manual_speech_end_timestamp)
         print("✅ STT processor loaded")
@@ -180,8 +143,7 @@ class STTAudioProcess(multiprocessing.Process):
         if len(self.audio_buffer) == 0:
             return
         
-        # Start timing for buffer-to-transcription
-        buffer_transcribe_start = time.time()
+
         
         # Record transcription start time
         self.transcription_start_time = time.time()
