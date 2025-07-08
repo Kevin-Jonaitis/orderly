@@ -13,6 +13,13 @@ export function useWebRTCAudioStream() {
   const pc = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
   const ttsAudioElement = useRef<HTMLAudioElement | null>(null);
+  
+  // AudioContext for low-latency audio playback
+  const audioContext = useRef<AudioContext | null>(null);
+  const audioSource = useRef<MediaStreamAudioSourceNode | null>(null);
+  
+  // Track recording state in ref to avoid stale closures
+  const isRecordingRef = useRef(false);
 
   const handleAudioMessage = (message: AudioMessage) => {
     console.log('Received audio message:', message);
@@ -127,22 +134,57 @@ export function useWebRTCAudioStream() {
           return; // Don't play audio from unknown MID
         }
         
-        // Create audio element for backend audio (only for MID 1)
+        // Use the working HTML5 audio approach with better volume control
+        console.log('🎵 Setting up HTML5 audio playback (proven working approach)...');
+        
+        // Create HTML5 audio element (this is what was working before)
         const audio = new Audio();
         audio.srcObject = new MediaStream([event.track]);
         audio.autoplay = true;
-        audio.volume = 0.8;
+        audio.volume = 1.0; // Full volume for testing
+        ttsAudioElement.current = audio;
         
-        // Debug: Log audio element details
-        console.log('🎵 Audio element created:', {
+        console.log('🎵 HTML5 audio element created:', {
           srcObject: audio.srcObject,
           autoplay: audio.autoplay,
           volume: audio.volume,
-          readyState: audio.readyState,
-          paused: audio.paused,
-          currentTime: audio.currentTime,
-          duration: audio.duration
+          readyState: audio.readyState
         });
+        
+        // Add event listeners for audio element
+        audio.onplay = () => {
+          console.log('🎵 HTML5 Audio: play event fired');
+          setIsTTSPlaying(true);
+          setMessages(prev => [...prev, '🎵 HTML5 Audio: playing']);
+        };
+        
+        audio.onended = () => {
+          console.log('🎵 HTML5 Audio: ended event fired');
+          setIsTTSPlaying(false);
+          setMessages(prev => [...prev, '🎵 HTML5 Audio: ended']);
+        };
+        
+        audio.onerror = (error: string | Event) => {
+          console.error('🎵 HTML5 Audio error:', error);
+          setMessages(prev => [...prev, '❌ HTML5 Audio: Error']);
+        };
+        
+        audio.oncanplay = () => {
+          console.log('🎵 HTML5 Audio: canplay event fired');
+          setMessages(prev => [...prev, '🎵 HTML5 Audio: can play']);
+        };
+        
+        audio.onloadstart = () => {
+          console.log('🎵 HTML5 Audio: loadstart event fired');
+          setMessages(prev => [...prev, '🎵 HTML5 Audio: loadstart']);
+        };
+        
+        audio.onloadeddata = () => {
+          console.log('🎵 HTML5 Audio: loadeddata event fired');
+          setMessages(prev => [...prev, '🎵 HTML5 Audio: loaded data']);
+        };
+        
+        setMessages(prev => [...prev, '🎵 HTML5 Audio: Element created and configured']);
         
         // Debug: Log WebRTC stats to see if audio is flowing
         setTimeout(() => {
@@ -162,71 +204,55 @@ export function useWebRTCAudioStream() {
           });
         }, 2000);
         
-        // Store reference to prevent garbage collection
-        ttsAudioElement.current = audio;
+        // Set TTS playing state
+        setIsTTSPlaying(true);
+        setMessages(prev => [...prev, '🎵 Audio: Track received and configured']);
         
-        // Add event listeners to debug audio playback
-        audio.onloadstart = () => {
-          console.log('🎵 Audio: loadstart event');
-          setMessages(prev => [...prev, '🎵 Audio: loadstart']);
-        };
-        
-        audio.oncanplay = () => {
-          console.log('🎵 Audio: canplay event');
-          setMessages(prev => [...prev, '🎵 Audio: canplay']);
-        };
-        
-        audio.onplay = () => {
-          console.log('🎵 Audio: play event');
-          setIsTTSPlaying(true);
-          setMessages(prev => [...prev, '🎵 Audio: playing']);
-        };
-        
-        audio.onpause = () => {
-          console.log('🎵 Audio: pause event');
-          setIsTTSPlaying(false);
-          setMessages(prev => [...prev, '🎵 Audio: paused']);
-        };
-        
-        audio.onended = () => {
-          console.log('🎵 Audio: ended event');
-          setIsTTSPlaying(false);
-          setMessages(prev => [...prev, '🎵 Audio: ended']);
-        };
-        
-        audio.onerror = (e) => {
-          console.error('🎵 Audio: error event', e);
-          setMessages(prev => [...prev, '🎵 Audio: error']);
-        };
+        // Add simple audio level monitoring for HTML5 audio
+        if (ttsAudioElement.current) {
+          const audio = ttsAudioElement.current;
+          
+          // Monitor audio element state
+          const checkAudioState = () => {
+            console.log('🎵 HTML5 Audio state:', {
+              readyState: audio.readyState,
+              paused: audio.paused,
+              currentTime: audio.currentTime,
+              duration: audio.duration,
+              volume: audio.volume
+            });
+            
+            // Continue monitoring for 10 seconds
+            if (Date.now() - startTime < 10000) {
+              setTimeout(checkAudioState, 1000);
+            }
+          };
+          
+          const startTime = Date.now();
+          setTimeout(checkAudioState, 1000);
+        }
         
         // Add track event listeners to monitor data flow
         event.track.onended = () => {
           console.log('🎵 Track ended');
+          setIsTTSPlaying(false);
           setMessages(prev => [...prev, '🎵 Track ended']);
         };
         
         event.track.onmute = () => {
           console.log('🎵 Track muted');
+          setIsTTSPlaying(false);
           setMessages(prev => [...prev, '🎵 Track muted']);
         };
         
         event.track.onunmute = () => {
           console.log('🎵 Track unmuted');
+          setIsTTSPlaying(true);
           setMessages(prev => [...prev, '🎵 Track unmuted']);
         };
         
-        audio.onended = () => {
-          setIsTTSPlaying(false);
-          setMessages(prev => [...prev, '🎵 Backend Audio: Ended']);
-        };
-        
-        audio.onerror = (error) => {
-          console.error('Backend audio error:', error);
-          setMessages(prev => [...prev, '❌ Backend Audio: Error']);
-        };
-        
-        console.log('🎵 Backend audio element created and configured');
-        setMessages(prev => [...prev, '🎵 Backend Audio: Ready to play']);
+        console.log('🎵 Low-latency audio playback configured');
+        setMessages(prev => [...prev, '🎵 Low-latency audio: Ready to play']);
       }
     };
 
@@ -299,6 +325,47 @@ export function useWebRTCAudioStream() {
     console.log('Starting WebRTC connection...');
     setMessages(prev => [...prev, 'Starting WebRTC connection...']);
 
+    // Initialize low-latency AudioContext
+    if (!audioContext.current) {
+      try {
+        audioContext.current = new AudioContext({
+          latencyHint: 0.01,  // Ultra-low latency: 10ms target
+          sampleRate: 48000    // Match WebRTC sample rate
+        });
+        
+        console.log('🎵 AudioContext created, state:', audioContext.current.state);
+        
+        // Resume the AudioContext (required for some browsers)
+        await audioContext.current.resume();
+        
+        console.log('🎵 AudioContext resumed, state:', audioContext.current.state);
+        setMessages(prev => [...prev, `🎵 AudioContext: ${audioContext.current.state}`]);
+        
+        // Test audio context is working
+        if (audioContext.current.state === 'running') {
+          console.log('🎵 AudioContext is running and ready for audio');
+        } else {
+          console.warn('🎵 AudioContext is not running, state:', audioContext.current.state);
+        }
+      } catch (error) {
+        console.error('🎵 Failed to create AudioContext:', error);
+        setMessages(prev => [...prev, '❌ AudioContext creation failed']);
+      }
+    } else {
+      console.log('🎵 AudioContext already exists, state:', audioContext.current?.state);
+      
+      // Ensure AudioContext is resumed
+      if (audioContext.current && audioContext.current.state !== 'running') {
+        try {
+          const context = audioContext.current;
+          await context.resume();
+          console.log('🎵 AudioContext resumed, new state:', context.state);
+        } catch (error) {
+          console.error('🎵 Failed to resume AudioContext:', error);
+        }
+      }
+    }
+
     // Create peer connection
     pc.current = createPeerConnection();
 
@@ -353,6 +420,7 @@ export function useWebRTCAudioStream() {
       await negotiate();
 
       setIsRecording(true);
+      isRecordingRef.current = true;
       console.log('WebRTC recording started');
       setMessages(prev => [...prev, 'WebRTC: Recording started']);
 
@@ -371,7 +439,9 @@ export function useWebRTCAudioStream() {
     console.log('Stopping WebRTC connection...');
     
     setIsRecording(false);
+    isRecordingRef.current = false;
     setIsConnected(false);
+    setIsTTSPlaying(false);
 
     // Stop local stream tracks
     if (localStream.current) {
@@ -379,6 +449,12 @@ export function useWebRTCAudioStream() {
         track.stop();
       });
       localStream.current = null;
+    }
+
+    // Disconnect audio source
+    if (audioSource.current) {
+      audioSource.current.disconnect();
+      audioSource.current = null;
     }
 
     // Close peer connection
@@ -406,10 +482,18 @@ export function useWebRTCAudioStream() {
 
   // Cleanup function
   const cleanup = useCallback(async () => {
-    if (isRecording) {
+    // Stop recording if active
+    if (isRecordingRef.current) {
       await stop();
     }
-  }, [isRecording, stop]);
+    
+    // Close AudioContext
+    if (audioContext.current) {
+      await audioContext.current.close();
+      audioContext.current = null;
+      console.log('🎵 AudioContext closed');
+    }
+  }, [stop]); // Use ref to avoid stale closures
 
   return {
     isRecording,

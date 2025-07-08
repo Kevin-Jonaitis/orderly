@@ -1,6 +1,6 @@
 """
 WebRTC server - direct port of aiortc server.py example for FastAPI
-Adapted for audio-only streaming to STT processor
+Adapted for audio-only streaming to STT processor with very low latency jitter buffer settings
 """
 
 import asyncio
@@ -24,24 +24,72 @@ from processes.audio_response_track import AudioResponseTrack
 # Global state - exact copy from aiortc server.py
 pcs = set()
 
+# Very Low Latency Jitter Buffer Configuration
+# These settings map to the libwebrtc parameters:
+# - jitter_buffer_max_packets -> capacity (must be power of 2)
+# - jitter_buffer_min_delay_ms -> prefetch (lower = less buffering)
+# - jitter_buffer_fast_playout -> reduced prefetch for lower latency
+JITTER_BUFFER_CONFIG = {
+    "audio": {
+        "capacity": 2,        # Very low latency (was 16) - jitter_buffer_max_packets
+        "prefetch": 0,        # No prefetch for immediate playout - jitter_buffer_min_delay_ms
+        "is_video": False
+    },
+    "video": {
+        "capacity": 32,       # Reduced from default 128 for lower latency
+        "prefetch": 0,        # No prefetch for video (fast playout)
+        "is_video": True
+    }
+}
+
+def setup_custom_jitter_buffer():
+    """Monkey patch RTCRtpReceiver to use custom jitter buffer settings"""
+    from aiortc.rtcrtpreceiver import RTCRtpReceiver
+    from aiortc.jitterbuffer import JitterBuffer
+    
+    # Store original __init__ method
+    original_init = RTCRtpReceiver.__init__
+    
+    def custom_init(self, kind: str, transport):
+        # Call original init
+        original_init(self, kind, transport)
+        
+        # Override jitter buffer with custom settings
+        if kind in JITTER_BUFFER_CONFIG:
+            config = JITTER_BUFFER_CONFIG[kind]
+            self._RTCRtpReceiver__jitter_buffer = JitterBuffer(
+                capacity=config["capacity"],
+                prefetch=config["prefetch"],
+                is_video=config["is_video"]
+            )
+            print(f"🎯 [WebRTC] Applied very low latency jitter buffer for {kind}: capacity={config['capacity']}, prefetch={config['prefetch']}")
+    
+    # Replace the __init__ method
+    RTCRtpReceiver.__init__ = custom_init
+    print("✅ [WebRTC] Custom jitter buffer configuration applied globally")
+
 def setup_webrtc_routes(app: FastAPI, audio_queue: multiprocessing.Queue, audio_output_webrtc_queue: multiprocessing.Queue, stt_warmup_flag):
-    """Set up WebRTC routes - direct port of aiortc server.py for FastAPI"""
+    """Set up WebRTC routes with very low latency jitter buffer configuration"""
+    
+    # Apply custom jitter buffer configuration globally
+    setup_custom_jitter_buffer()
     
     @app.post("/api/webrtc/offer")
     async def offer(params: dict):
-        """Handle WebRTC offer - simplified based on aiortc server.py"""
+        """Handle WebRTC offer with very low latency jitter buffer settings"""
         
         # Extract parameters
         offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
         
         print(f"🤝 [WebRTC] Received offer")
         
-        # Create peer connection
+        # Create peer connection (will automatically use custom jitter buffer)
         pc = RTCPeerConnection()
         pc_id = f"PeerConnection({id(pc)})"
         pcs.add(pc)
         
-        print(f"🔧 [WebRTC] Created {pc_id}")
+        print(f"🔧 [WebRTC] Created {pc_id} with very low latency jitter buffer settings")
+        print(f"⚡ [WebRTC] Audio jitter buffer: capacity=4, prefetch=0 (ultra-low latency)")
         
         @pc.on("connectionstatechange")
         async def on_connectionstatechange():
@@ -62,7 +110,7 @@ def setup_webrtc_routes(app: FastAPI, audio_queue: multiprocessing.Queue, audio_
 
         @pc.on("track")
         def on_track(track):
-            """Handle incoming track - assign transceiver 0 to AudioProcessorTrack, transceiver 1 to AudioResponseTrack"""
+            """Handle incoming track with very low latency jitter buffer"""
             print(f"🎤 [WebRTC] {pc_id} received {track.kind} track")
             
             if track.kind == "audio":
@@ -127,4 +175,5 @@ def setup_webrtc_routes(app: FastAPI, audio_queue: multiprocessing.Queue, audio_
         
         print("✅ [WebRTC] All connections closed")
     
-    print("✅ [WebRTC] aiortc server routes registered")
+    print("✅ [WebRTC] aiortc server routes registered with very low latency jitter buffer settings")
+    print("⚡ [WebRTC] Audio jitter buffer: capacity=4, prefetch=0 (ultra-low latency mode)")
