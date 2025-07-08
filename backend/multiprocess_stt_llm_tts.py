@@ -9,6 +9,7 @@ import os
 import time
 import multiprocessing
 import threading
+import numpy as np # Added for warmup test
 
 # CRITICAL: Set multiprocessing start method to 'spawn' for CUDA compatibility
 # This must be done before importing any CUDA-related modules
@@ -145,7 +146,7 @@ def main():
     webrtc_thread = start_webrtc_server(webrtc_audio_queue, audio_output_webrtc_queue)
     
     # Start processes
-    stt_process = STTAudioProcess(text_queue, webrtc_audio_queue, last_text_change_timestamp)
+    stt_process = STTAudioProcess(text_queue, webrtc_audio_queue, last_text_change_timestamp, manual_speech_end_timestamp)
     llm_process = LLMProcess(text_queue, tts_text_queue, llm_start_timestamp, llm_send_to_tts_timestamp, llm_complete_timestamp)
     tts_process = TTSProcess(tts_text_queue, audio_queue, first_audio_chunk_timestamp)
     audio_process = AudioProcessor(audio_queue, first_audio_chunk_timestamp, audio_output_webrtc_queue)
