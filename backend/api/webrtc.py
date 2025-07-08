@@ -18,8 +18,6 @@ from av import AudioFrame
 
 # Import the AudioProcessorTrack from its new location
 from processes.audio_processor_track import AudioProcessorTrack
-# Import the AudioResponseTrack for outgoing audio
-from processes.audio_response_track import AudioResponseTrack
 
 # Global state - exact copy from aiortc server.py
 pcs = set()
@@ -68,7 +66,7 @@ def setup_custom_jitter_buffer():
     RTCRtpReceiver.__init__ = custom_init
     print("✅ [WebRTC] Custom jitter buffer configuration applied globally")
 
-def setup_webrtc_routes(app: FastAPI, audio_queue: multiprocessing.Queue, audio_output_webrtc_queue: multiprocessing.Queue, stt_warmup_flag):
+def setup_webrtc_routes(app: FastAPI, audio_queue: multiprocessing.Queue, stt_warmup_flag):
     """Set up WebRTC routes with very low latency jitter buffer configuration"""
     
     # Apply custom jitter buffer configuration globally
@@ -120,15 +118,11 @@ def setup_webrtc_routes(app: FastAPI, audio_queue: multiprocessing.Queue, audio_
                         mid = transceiver.mid
                         print(f"🎤 [WebRTC] {pc_id} found track in transceiver with MID: {mid}")
                         
-                        # Assign MID 0 to AudioProcessorTrack, MID 1 to AudioResponseTrack
+                        # Only handle incoming audio (MID 0) - no outgoing audio via WebRTC
                         if mid == "0":
                             print(f"🎤 [WebRTC] {pc_id} setting up AudioProcessorTrack for MID 0")
                             audio_processor = AudioProcessorTrack(track, audio_queue, pc_id)
                             pc.addTrack(audio_processor)
-                        elif mid == "1":
-                            print(f"🎵 [WebRTC] {pc_id} setting up AudioResponseTrack for MID 1")
-                            audio_response = AudioResponseTrack(audio_output_webrtc_queue, pc_id)
-                            pc.addTrack(audio_response)
                         else:
                             print(f"⚠️ [WebRTC] {pc_id} unexpected MID: {mid}")
                         break
