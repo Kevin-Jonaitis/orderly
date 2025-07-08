@@ -13,7 +13,7 @@ import threading
 if __name__ == "__main__":
     multiprocessing.set_start_method('spawn')
 
-from processes.audio_process import AudioProcessor
+from processes.tts_audio_process import AudioProcessor
 
 # Global variables for timing
 hear_audio_timestamp = None

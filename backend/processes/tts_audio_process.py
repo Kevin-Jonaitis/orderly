@@ -107,5 +107,4 @@ class AudioProcessor(Process):
         except Exception as e:
             print(f"❌ [AudioProcessor] Error processing audio for WebRTC: {e}")
             import traceback
-            traceback.print_exc()
-    
+            traceback.print_exc() 

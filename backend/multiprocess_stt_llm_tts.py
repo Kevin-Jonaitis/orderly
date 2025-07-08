@@ -22,7 +22,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from processes.stt_audio_process import STTAudioProcess
 from processes.llm_process import LLMProcess
 from processes.tts_process import TTSProcess
-from processes.audio_process import AudioProcessor
+from processes.tts_audio_process import AudioProcessor
 
 # Import WebRTC support
 from api.webrtc import setup_webrtc_routes
