@@ -33,16 +33,15 @@ order_update_queue = None  # type: ignore
 # Global set of active order WebSocket connections
 order_websocket_connections = set()
 
-order_broadcast_task = None
-
 async def order_broadcast_loop():
+    """Simple async loop that waits for order updates and broadcasts them"""
     global order_update_queue, order_websocket_connections
     while True:
         if order_update_queue is None:
             await asyncio.sleep(0.1)
             continue
-        # Blocking get from the queue in a thread
-        order_data = await asyncio.get_event_loop().run_in_executor(None, order_update_queue.get)
+        # Wait for order data from the queue (blocking, but yields control)
+        order_data = await asyncio.to_thread(order_update_queue.get)
         # Broadcast to all connected clients
         to_remove = set()
         for ws in list(order_websocket_connections):
@@ -221,34 +220,18 @@ async def order_websocket(websocket: WebSocket):
     connection_id = f"order_ws_{int(time.time() * 1000)}"
     print(f"📋 [Order] Client connected to order WebSocket: {connection_id}")
     order_websocket_connections.add(websocket)
-    global order_broadcast_task
-    if order_broadcast_task is None:
-        order_broadcast_task = asyncio.create_task(order_broadcast_loop())
     try:
-        # Send initial order state
-        if order_tracker:
-            order_data = order_tracker.format_order_for_frontend()
-            await websocket.send_text(json.dumps(order_data))
-            print(f"📋 [Order] Sent initial order to {connection_id}: {order_data}")
-        else:
-            await websocket.send_text(json.dumps({"items": [], "total": 0}))
-            print(f"📋 [Order] No order tracker available, sent empty order to {connection_id}")
         while True:
-            try:
-                data = await websocket.receive_text()
-                message = json.loads(data)
-                if message.get("type") == "clear_order":
-                    if order_tracker:
-                        order_tracker.clear_order()
-                        await websocket.send_text(json.dumps({"items": [], "total": 0}))
-                        print(f"📋 [Order] Order cleared for {connection_id}")
-                    else:
-                        print(f"📋 [Order] Clear order requested but no order tracker available")
-            except WebSocketDisconnect:
-                break
-            except Exception as e:
-                print(f"❌ [Order] Error handling message: {e}")
-                break
+            # Wait for order data from the queue (blocking, but yields control)
+            if order_update_queue is None:
+                raise RuntimeError("order_update_queue must be set before using order WebSocket endpoints.")
+            order_data = await asyncio.to_thread(order_update_queue.get)
+            # Broadcast to all connected clients
+            for ws in list(order_websocket_connections):
+                try:
+                    await ws.send_text(json.dumps(order_data))
+                except Exception as e:
+                    print(e)
     except WebSocketDisconnect:
         print(f"📋 [Order] Client disconnected from order WebSocket: {connection_id}")
     except Exception as e:
