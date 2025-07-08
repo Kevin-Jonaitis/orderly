@@ -82,33 +82,6 @@ class LLMReasoner:
         self.menu_context = self.load_menu_context()
         self.current_order = []  # Track current order items
 
-        # Simple model warmup with GPU monitoring
-        print("🔥 Warming up model...")
-        print("🔍 GPU memory before warmup:")
-        if torch.cuda.is_available():
-            print(f"   Allocated: {torch.cuda.memory_allocated() / (1024*1024):.1f}MB")
-            print(f"   Reserved: {torch.cuda.memory_reserved() / (1024*1024):.1f}MB")
-        
-        warmup_start = time.time()
-        warmup_response = self.llm("Hello", max_tokens=10)
-        warmup_time = (time.time() - warmup_start) * 1000
-        
-        print("🔍 GPU memory after warmup:")
-        if torch.cuda.is_available():
-            print(f"   Allocated: {torch.cuda.memory_allocated() / (1024*1024):.1f}MB")
-            print(f"   Reserved: {torch.cuda.memory_reserved() / (1024*1024):.1f}MB")
-        
-        print(f"🔥 Model warmup: {warmup_time:.0f}ms")
-        print(f"🔥 Warmup response: {warmup_response['choices'][0]['text'][:50]}...")
-
-        # Synchronize CUDA context to prevent STT conflicts
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-            print("🔄 CUDA context synchronized for STT compatibility")
-
-        # Log initial GPU memory usage
-        self._log_gpu_memory("LLM_INIT")
-
         # Order processing instructions and menu context
         self.instructions_and_menu = """<|user|>
 You are a fast-food order taker. Your job is to update the user's order based on their request.
@@ -191,6 +164,36 @@ Beefy 5-Layer Burrito: Ground beef, nacho cheese, cheddar cheese, refried beans,
 XXL Grilled Stuft Burrito: Ground beef, rice, beans, guacamole, pico de gallo, cheddar cheese, sour cream
 
 Now update the order based on the user request below."""
+
+        # Realistic model warmup with instructions and menu
+        print("🔥 Warming up model with realistic prompt...")
+        print("🔍 GPU memory before warmup:")
+        if torch.cuda.is_available():
+            print(f"   Allocated: {torch.cuda.memory_allocated() / (1024*1024):.1f}MB")
+            print(f"   Reserved: {torch.cuda.memory_reserved() / (1024*1024):.1f}MB")
+        
+        # Create a realistic warm-up prompt that matches actual usage
+        warmup_prompt = f"{self.instructions_and_menu}\n\nPrevious Order:\n- (empty)\n\nUser said: hello\n\n<|end|>\n<|assistant|>"
+        
+        warmup_start = time.time()
+        warmup_response = self.llm(warmup_prompt, max_tokens=500, temperature=0.0, top_k=1)
+        warmup_time = (time.time() - warmup_start) * 1000
+        
+        print("🔍 GPU memory after warmup:")
+        if torch.cuda.is_available():
+            print(f"   Allocated: {torch.cuda.memory_allocated() / (1024*1024):.1f}MB")
+            print(f"   Reserved: {torch.cuda.memory_reserved() / (1024*1024):.1f}MB")
+        
+        print(f"🔥 Model warmup: {warmup_time:.0f}ms")
+        print(f"🔥 Warmup response: {warmup_response['choices'][0]['text'][:100]}...")
+
+        # Synchronize CUDA context to prevent STT conflicts
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            print("🔄 CUDA context synchronized for STT compatibility")
+
+        # Log initial GPU memory usage
+        self._log_gpu_memory("LLM_INIT")
 
     def load_menu_context(self) -> str:
         """Load menu context from uploaded files"""
