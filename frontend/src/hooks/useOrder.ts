@@ -49,7 +49,7 @@ export function useOrder() {
       return;
     }
 
-    const ws = new WebSocket('ws://localhost:8002/ws/order');
+    const ws = new WebSocket('ws://localhost:8002/api/ws/order');
     
     ws.onopen = () => {
       websocketRef.current = ws;

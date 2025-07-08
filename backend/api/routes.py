@@ -24,10 +24,50 @@ connection_audio_queues: Dict[str, multiprocessing.Queue] = {}
 # Global WebSocket audio queue (will be set by main app)
 websocket_audio_queue: multiprocessing.Queue = None  # type: ignore
 
+# Global order tracker (will be set by main app)
+order_tracker = None  # type: ignore
+
+# Global order update queue (will be set by main app)
+order_update_queue = None  # type: ignore
+
+# Global set of active order WebSocket connections
+order_websocket_connections = set()
+
+order_broadcast_task = None
+
+async def order_broadcast_loop():
+    global order_update_queue, order_websocket_connections
+    while True:
+        if order_update_queue is None:
+            await asyncio.sleep(0.1)
+            continue
+        # Blocking get from the queue in a thread
+        order_summary = await asyncio.get_event_loop().run_in_executor(None, order_update_queue.get)
+        order_data = convert_order_summary_to_frontend_format(order_summary)
+        # Broadcast to all connected clients
+        to_remove = set()
+        for ws in list(order_websocket_connections):
+            try:
+                await ws.send_text(json.dumps(order_data))
+            except Exception as e:
+                to_remove.add(ws)
+        for ws in to_remove:
+            order_websocket_connections.discard(ws)
+
 def set_websocket_audio_queue(queue: multiprocessing.Queue):
     """Set the global WebSocket audio queue"""
     global websocket_audio_queue
     websocket_audio_queue = queue
+
+def set_order_tracker(tracker):
+    """Set the global order tracker"""
+    global order_tracker
+    order_tracker = tracker
+
+def set_order_update_queue(queue):
+    """Set the global order update queue"""
+    global order_update_queue
+    order_update_queue = queue
 
 # WebRTC endpoint is handled in webrtc.py
 
@@ -160,34 +200,98 @@ async def health_check():
 @router.get("/order")
 async def get_order():
     """Get current order"""
-    # Placeholder - return empty order for now
-    return {"items": [], "total": 0}
+    if order_tracker:
+        order_summary = order_tracker.get_order_summary()
+        order_data = convert_order_summary_to_frontend_format(order_summary)
+        return order_data
+    else:
+        return {"items": [], "total": 0}
 
 @router.post("/order/clear")
 async def clear_order():
     """Clear current order"""
-    # Placeholder - just return success
-    return {"status": "cleared"}
+    if order_tracker:
+        order_tracker.clear_order()
+        return {"status": "cleared"}
+    else:
+        return {"status": "error", "message": "Order tracker not available"}
 
 @router.websocket("/ws/order")
 async def order_websocket(websocket: WebSocket):
     """WebSocket endpoint for order updates"""
     await websocket.accept()
-    print("📋 [Order] Client connected to order WebSocket")
-    
+    connection_id = f"order_ws_{int(time.time() * 1000)}"
+    print(f"📋 [Order] Client connected to order WebSocket: {connection_id}")
+    order_websocket_connections.add(websocket)
+    global order_broadcast_task
+    if order_broadcast_task is None:
+        order_broadcast_task = asyncio.create_task(order_broadcast_loop())
     try:
         # Send initial order state
-        await websocket.send_text(json.dumps({"items": [], "total": 0}))
-        
-        # Keep connection alive
+        if order_tracker:
+            order_summary = order_tracker.get_order_summary()
+            order_data = convert_order_summary_to_frontend_format(order_summary)
+            await websocket.send_text(json.dumps(order_data))
+            print(f"📋 [Order] Sent initial order to {connection_id}: {order_data}")
+        else:
+            await websocket.send_text(json.dumps({"items": [], "total": 0}))
+            print(f"📋 [Order] No order tracker available, sent empty order to {connection_id}")
         while True:
             try:
                 data = await websocket.receive_text()
-                # Handle order updates if needed
-                print(f"📋 [Order] Received message: {data}")
+                message = json.loads(data)
+                if message.get("type") == "clear_order":
+                    if order_tracker:
+                        order_tracker.clear_order()
+                        await websocket.send_text(json.dumps({"items": [], "total": 0}))
+                        print(f"📋 [Order] Order cleared for {connection_id}")
+                    else:
+                        print(f"📋 [Order] Clear order requested but no order tracker available")
             except WebSocketDisconnect:
                 break
+            except Exception as e:
+                print(f"❌ [Order] Error handling message: {e}")
+                break
     except WebSocketDisconnect:
-        print("📋 [Order] Client disconnected from order WebSocket")
+        print(f"📋 [Order] Client disconnected from order WebSocket: {connection_id}")
     except Exception as e:
         print(f"❌ [Order] Error in order WebSocket: {e}")
+    finally:
+        order_websocket_connections.discard(websocket)
+
+def convert_order_summary_to_frontend_format(order_summary: str) -> Dict[str, Any]:
+    """Convert order summary string to frontend format"""
+    if "Previous Order:" not in order_summary or "(empty)" in order_summary:
+        return {"items": [], "total": 0}
+    
+    # Parse the order summary
+    lines = order_summary.strip().split('\n')
+    items = []
+    total = 0
+    
+    for line in lines:
+        line = line.strip()
+        if line.startswith('-') and 'x' in line:
+            # Parse "2x Bean Burrito" format
+            try:
+                # Remove the "-" and parse
+                item_text = line[1:].strip()
+                parts = item_text.split('x', 1)
+                if len(parts) == 2:
+                    quantity = int(parts[0].strip())
+                    item_name = parts[1].strip()
+                    
+                    # Create item object (using placeholder price for now)
+                    item = {
+                        "id": f"item_{len(items)}",
+                        "name": item_name,
+                        "price": 8.99,  # Placeholder price
+                        "quantity": quantity
+                    }
+                    items.append(item)
+                    total += item["price"] * quantity
+            except (ValueError, IndexError) as e:
+                print(f"📋 [Order] Error parsing order line '{line}': {e}")
+                continue
+    
+    return {"items": items, "total": round(total, 2)}

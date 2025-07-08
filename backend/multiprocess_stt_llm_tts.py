@@ -84,7 +84,7 @@ def keyboard_listener(manual_speech_end_timestamp, manual_audio_heard_timestamp,
         print("⌨️  Manual timing stopped")
         pass
 
-def start_webrtc_server(webrtc_audio_queue, audio_output_websocket_queue, stt_warmup_flag):
+def start_webrtc_server(webrtc_audio_queue, audio_output_websocket_queue, stt_warmup_flag, order_tracker, order_update_queue):
     """Start WebRTC server in a separate thread"""
     def run_server():
         app = FastAPI(title="WebRTC Audio Server")
@@ -99,6 +99,14 @@ def start_webrtc_server(webrtc_audio_queue, audio_output_websocket_queue, stt_wa
         # Set up WebSocket audio queue
         from api.routes import set_websocket_audio_queue
         set_websocket_audio_queue(audio_output_websocket_queue)
+        
+        # Set up order tracker for WebSocket routes
+        from api.routes import set_order_tracker
+        set_order_tracker(order_tracker)
+        
+        # Set up order update queue for WebSocket routes
+        from api.routes import set_order_update_queue
+        set_order_update_queue(order_update_queue)
         
         # Configure CORS for browser access
         from fastapi.middleware.cors import CORSMiddleware
@@ -137,6 +145,7 @@ def main():
     audio_queue = multiprocessing.Queue(maxsize=100)  # TTS → AudioProcessor
     webrtc_audio_queue = multiprocessing.Queue(maxsize=1000)  # WebRTC → STT
     audio_output_websocket_queue = multiprocessing.Queue(maxsize=1000)  # AudioProcessor → WebSocket
+    order_update_queue = multiprocessing.Queue(maxsize=50)  # LLM → Order WebSocket updates
     
     # Create 7 simple timing variables
     manual_speech_end_timestamp = multiprocessing.Value('d', 0.0)
@@ -153,12 +162,20 @@ def main():
     # Shared flag to signal STT warm-up when client connects
     stt_warmup_flag = multiprocessing.Value('i', 0)            # 0 = no warm-up needed, 1 = warm-up needed
     
+    # Create shared order tracker using multiprocessing manager
+    from multiprocessing import Manager
+    from utils.shared_order_tracker import SharedOrderTracker
+    manager = Manager()
+    shared_order_tracker = manager.Namespace()
+    shared_order_tracker.order_items = manager.dict()
+    shared_order_tracker_instance = SharedOrderTracker(shared_order_tracker)
+    
     # Start WebRTC + WebSocket server
-    webrtc_thread = start_webrtc_server(webrtc_audio_queue, audio_output_websocket_queue, stt_warmup_flag)
+    webrtc_thread = start_webrtc_server(webrtc_audio_queue, audio_output_websocket_queue, stt_warmup_flag, shared_order_tracker_instance, order_update_queue)
     
     # Start processes
     stt_process = STTAudioProcess(text_queue, webrtc_audio_queue, last_text_change_timestamp, manual_speech_end_timestamp, stt_warmup_flag)
-    llm_process = LLMProcess(text_queue, tts_text_queue, llm_start_timestamp, llm_send_to_tts_timestamp, llm_complete_timestamp)
+    llm_process = LLMProcess(text_queue, tts_text_queue, llm_start_timestamp, llm_send_to_tts_timestamp, llm_complete_timestamp, shared_order_tracker_instance, order_update_queue)
     tts_process = TTSProcess(tts_text_queue, audio_queue, first_audio_chunk_timestamp)
     audio_process = AudioProcessor(audio_queue, first_audio_chunk_timestamp, audio_output_websocket_queue)
     
