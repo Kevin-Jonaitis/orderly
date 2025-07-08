@@ -82,8 +82,56 @@ class LLMReasoner:
         self.menu_context = self.load_menu_context()
         self.current_order = []  # Track current order items
 
-        # Order processing instructions and menu context
-        self.instructions_and_menu = """<|user|>
+        # Load instructions and menu from file
+        self.instructions_and_menu = self.load_instructions_and_menu()
+
+        # Realistic model warmup with instructions and menu
+        print("🔥 Warming up model with realistic prompt...")
+        print("🔍 GPU memory before warmup:")
+        if torch.cuda.is_available():
+            print(f"   Allocated: {torch.cuda.memory_allocated() / (1024*1024):.1f}MB")
+            print(f"   Reserved: {torch.cuda.memory_reserved() / (1024*1024):.1f}MB")
+        
+        # Create a realistic warm-up prompt that matches actual usage
+        warmup_prompt = f"{self.instructions_and_menu}\n\nPrevious Order:\n- 2x Bean Burrito\n- 2x Taco Supreme\n- 2x Crunchwrap Supreme\n- 1x Pink Lemonade\n\nUser said: hello\n\n<|end|>\n<|assistant|>"
+        
+        warmup_start = time.time()
+        warmup_response = self.llm(warmup_prompt, max_tokens=500, temperature=0.0, top_k=1)
+        warmup_time = (time.time() - warmup_start) * 1000
+        
+        print("🔍 GPU memory after warmup:")
+        if torch.cuda.is_available():
+            print(f"   Allocated: {torch.cuda.memory_allocated() / (1024*1024):.1f}MB")
+            print(f"   Reserved: {torch.cuda.memory_reserved() / (1024*1024):.1f}MB")
+        
+        print(f"🔥 Model warmup: {warmup_time:.0f}ms")
+        print(f"🔥 Warmup response: {warmup_response['choices'][0]['text'][:100]}...")
+
+        # Synchronize CUDA context to prevent STT conflicts
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            print("🔄 CUDA context synchronized for STT compatibility")
+
+        # Log initial GPU memory usage
+        self._log_gpu_memory("LLM_INIT")
+
+    def load_instructions_and_menu(self) -> str:
+        """Load instructions and menu from menu.txt file"""
+        menu_file = Path("menus") / "menu.txt"
+        if menu_file.exists():
+            try:
+                content = menu_file.read_text(encoding='utf-8')
+                print(f"📋 Loaded instructions and menu from {menu_file}")
+                return content
+            except Exception as e:
+                print(f"⚠️  Error reading {menu_file}: {e}")
+                print("📋 Using default instructions and menu")
+        else:
+            print(f"⚠️  Menu file not found: {menu_file}")
+            print("📋 Using default instructions and menu")
+        
+        # Default fallback content
+        return """<|user|>
 You are a fast-food order taker. Your job is to update the user's order based on their request.
 
 Instructions:
@@ -168,36 +216,6 @@ XXL Grilled Stuft Burrito: Ground beef, rice, beans, guacamole, pico de gallo, c
 
 Now update the order based on the user request below."""
 
-        # Realistic model warmup with instructions and menu
-        print("🔥 Warming up model with realistic prompt...")
-        print("🔍 GPU memory before warmup:")
-        if torch.cuda.is_available():
-            print(f"   Allocated: {torch.cuda.memory_allocated() / (1024*1024):.1f}MB")
-            print(f"   Reserved: {torch.cuda.memory_reserved() / (1024*1024):.1f}MB")
-        
-        # Create a realistic warm-up prompt that matches actual usage
-        warmup_prompt = f"{self.instructions_and_menu}\n\nPrevious Order:\n- 2x Bean Burrito\n- 2x Taco Supreme\n- 2x Crunchwrap Supreme\n- 1x Pink Lemonade\n\nUser said: hello\n\n<|end|>\n<|assistant|>"
-        
-        warmup_start = time.time()
-        warmup_response = self.llm(warmup_prompt, max_tokens=500, temperature=0.0, top_k=1)
-        warmup_time = (time.time() - warmup_start) * 1000
-        
-        print("🔍 GPU memory after warmup:")
-        if torch.cuda.is_available():
-            print(f"   Allocated: {torch.cuda.memory_allocated() / (1024*1024):.1f}MB")
-            print(f"   Reserved: {torch.cuda.memory_reserved() / (1024*1024):.1f}MB")
-        
-        print(f"🔥 Model warmup: {warmup_time:.0f}ms")
-        print(f"🔥 Warmup response: {warmup_response['choices'][0]['text'][:100]}...")
-
-        # Synchronize CUDA context to prevent STT conflicts
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-            print("🔄 CUDA context synchronized for STT compatibility")
-
-        # Log initial GPU memory usage
-        self._log_gpu_memory("LLM_INIT")
-
     def load_menu_context(self) -> str:
         """Load menu context from uploaded files"""
         menu_files = list(Path("menus").glob("*.txt"))
@@ -217,14 +235,19 @@ Now update the order based on the user request below."""
         ]
         return items
 
-    def generate_response_stream(self, user_text: str, current_order_summary: str = None, cancellation=None):
-        """Generate response with streaming and time-to-first-token metrics"""
+    def generate_response_stream_for_user_request(self, user_text: str, current_order_summary: str = None, cancellation=None):
+        """Generate response for a user request - constructs prompt and calls streaming method"""
         # Use provided order summary or default to empty
         order_section = current_order_summary if current_order_summary else "Previous Order:\n- (empty)"
         
         # Build full prompt with instructions and user input
         full_prompt = f"{self.instructions_and_menu}\n\n{order_section}\n\nUser said: {user_text}\n\n<|end|>\n<|assistant|>"
         
+        # Call the core streaming method with the constructed prompt
+        return self.generate_response_stream(full_prompt, cancellation)
+
+    def generate_response_stream(self, full_prompt: str, cancellation=None):
+        """Generate response with streaming and time-to-first-token metrics"""
         # Add context monitoring for large prompts
         prompt_tokens = len(self.llm.tokenize(full_prompt.encode()))
         context_limit = self.llm.n_ctx()

@@ -16,6 +16,7 @@ A real-time AI-powered order taking system with streaming audio and intelligent 
 - ✅ Menu upload (text/image) with backend processing
 - ✅ Comprehensive latency logging system
 - ✅ Stubbed pipeline components ready for LLM integration
+- ✅ OCR menu reading with EasyOCR
 
 ### Current STT Implementation
 - ✅ **Whisper STT**: Faster-Whisper with GPU optimization (tiny.en, int8)
@@ -28,6 +29,12 @@ A real-time AI-powered order taking system with streaming audio and intelligent 
 - ✅ **GPU Acceleration**: CUDA-optimized inference (~1s response time)
 - ✅ **KV Cache**: Enabled for faster inference
 - ✅ **Configurable prompts**: Easy system prompt modification
+
+### OCR Implementation
+- ✅ **EasyOCR**: Text extraction from menu images
+- ✅ **Multi-language support**: English language detection
+- ✅ **Confidence scoring**: Text confidence levels and bounding boxes
+- ✅ **Batch processing**: Process multiple text blocks from single image
 
 ### Planned Integration  
 - 🔄 Chatterbox + SNAC for text-to-speech
@@ -70,6 +77,64 @@ python3 setup_env.py
 mkdir -p models
 curl -L -o models/Phi-3-mini-4k-instruct-q4.gguf https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf
 ```
+
+### OCR Menu Reading
+The system includes an OCR script to read text from menu images using EasyOCR.
+
+**Setup:**
+```bash
+# Install OCR dependencies (included in requirements.txt)
+pip install easyocr>=1.7.0
+
+# Create menus directory
+mkdir -p backend/menus
+```
+
+**Usage:**
+1. Place menu images in `backend/menus/` directory
+2. Edit `IMAGE_FILENAME` variable in `backend/ocr_reader.py` to specify which file to read
+3. Run the OCR script:
+```bash
+cd backend
+python ocr_reader.py
+```
+
+**Example Output:**
+```
+🔍 OCR Menu Reader
+==================================================
+🔍 Initializing EasyOCR...
+✅ EasyOCR initialized successfully
+📖 Reading text from: backend/menus/menu.png
+
+📋 Found 3 text blocks:
+==================================================
+1. Text: 'Bean Burrito'
+   Confidence: 0.95
+   Bounding Box: [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]
+------------------------------
+2. Text: '$8.99'
+   Confidence: 0.92
+   Bounding Box: [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]
+------------------------------
+3. Text: 'Chicken Quesadilla'
+   Confidence: 0.88
+   Bounding Box: [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]
+------------------------------
+
+📄 Complete Text:
+==================================================
+Bean Burrito
+$8.99
+Chicken Quesadilla
+
+✅ Successfully read 3 text blocks from menu.png
+```
+
+**Supported Image Formats:**
+- PNG, JPG, JPEG, BMP, TIFF, and other common formats
+- Works best with clear, high-contrast text
+- Supports multiple text blocks per image
 
 ### GPU Setup for LLM Acceleration
 

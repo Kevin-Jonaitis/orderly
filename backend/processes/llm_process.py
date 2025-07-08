@@ -143,7 +143,7 @@ class LLMProcess(multiprocessing.Process):
         tts_sent = False
         llm_start_time = time.time()  # Record start time
         
-        for token in llm_reasoner.generate_response_stream(text, current_order_summary):
+        for token in llm_reasoner.generate_response_stream_for_user_request(text, current_order_summary):
             if self.should_cancel:
                 break
                 

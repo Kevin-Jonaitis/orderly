@@ -85,6 +85,9 @@ tmp/
 backend/uploads/
 backend/menus/
 
+# Output files and generated content
+backend/output/
+
 # Model files (large AI models)
 *.bin
 *.onnx
