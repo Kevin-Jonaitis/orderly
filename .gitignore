@@ -116,3 +116,12 @@ Pipfile.lock
 
 # Poetry
 poetry.lock
+
+# External repositories and dependencies
+RealtimeVoiceChat/
+.claude/
+aiortc/
+delayed-streams-modeling/
+llama-cpp-python/
+llama.cpp/
+venv312/
