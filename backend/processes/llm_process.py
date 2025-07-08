@@ -11,11 +11,64 @@ import queue
 from datetime import datetime
 import threading
 import time
+import re
 
 # Add the backend directory to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from processors.llm import LLMReasoner
+
+class OrderTracker:
+    """Tracks the user's current order by parsing LLM responses"""
+    
+    def __init__(self):
+        self.order_items = {}  # Map from item name to quantity
+    
+    def parse_and_update_order(self, response_text):
+        """Parse response text and update the order items"""
+        # Look for "Updated Order:" section
+        if "Updated Order:" not in response_text:
+            return
+        
+        # Extract everything after "Updated Order:"
+        order_section = response_text.split("Updated Order:")[1]
+        
+        # Clear current order
+        self.order_items.clear()
+        
+        # Parse each line that starts with "-"
+        lines = order_section.strip().split('\n')
+        for line in lines:
+            line = line.strip()
+            if line.startswith('-'):
+                # Remove the "-" and parse the item
+                item_text = line[1:].strip()
+                
+                # Skip empty items
+                if not item_text or item_text == '(empty)':
+                    continue
+                
+                # Parse quantity and item name
+                # Pattern: "2x Bean Burrito" -> quantity=2, item="Bean Burrito"
+                match = re.match(r'(\d+)x\s+(.+)', item_text)
+                if match:
+                    quantity = int(match.group(1))
+                    item_name = match.group(2).strip()
+                    self.order_items[item_name] = quantity
+    
+    def get_order_summary(self):
+        """Return a formatted string of the current order"""
+        if not self.order_items:
+            return "Previous Order:\n- (empty)"
+        
+        summary = "Previous Order:\n"
+        for item_name, quantity in self.order_items.items():
+            summary += f"- {quantity}x {item_name}\n"
+        return summary.strip()
+    
+    def clear_order(self):
+        """Clear the current order"""
+        self.order_items.clear()
 
 class LLMProcess(multiprocessing.Process):
     """Process that handles LLM text processing and response generation"""
@@ -28,6 +81,7 @@ class LLMProcess(multiprocessing.Process):
         self.llm_send_to_tts_timestamp = llm_send_to_tts_timestamp
         self.llm_complete_timestamp = llm_complete_timestamp
         self.should_cancel = False  # Simple flag for cancellation
+        self.order_tracker = OrderTracker()  # Track user's current order
         
     def run(self):
         """Main process loop - processes text and generates responses"""
@@ -105,26 +159,36 @@ class LLMProcess(multiprocessing.Process):
         print(f"\n[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🧠 Processing: '{text}'")
         print("Response: ", end='', flush=True)
         
+        # Get current order summary for context
+        current_order_summary = self.order_tracker.get_order_summary()
+        print(f"📋 Using order context: {current_order_summary}")
+        
         # Parse tokens and handle early TTS sending
-        complete_response, tts_sent = self._parse_and_stream_tokens(llm_reasoner, text)
+        complete_response, tts_sent = self._parse_and_stream_tokens(llm_reasoner, text, current_order_summary)
+        
+        # Parse and update order tracker with complete response
+        self.order_tracker.parse_and_update_order(complete_response)
+        
+        # Print current order summary
+        print(f"\n📋 {self.order_tracker.get_order_summary()}")
         
         # Print completion status
         if not self.should_cancel:
             print(f"\n✅ LLM Complete")
     
-    def _parse_and_stream_tokens(self, llm_reasoner, text):
+    def _parse_and_stream_tokens(self, llm_reasoner, text, current_order_summary):
         """Parse streaming tokens and send response to TTS when 'Updated Order:' is detected, or send full response if not found"""
         tts_response = ""
-        console_response = ""
+        response_builder = ""
         tts_sent = False
         llm_start_time = time.time()  # Record start time
         
-        for token in llm_reasoner.generate_response_stream(text, None):
+        for token in llm_reasoner.generate_response_stream(text, current_order_summary):
             if self.should_cancel:
                 break
                 
             # Always add to console output
-            console_response += token
+            response_builder += token
             print(token, end='', flush=True)
             
             # Accumulate for TTS until we find the marker
@@ -144,17 +208,17 @@ class LLMProcess(multiprocessing.Process):
                     tts_sent = True
         
         # If we didn't find "Updated Order:" by the end, send the complete response to TTS
-        if not tts_sent and console_response.strip():
+        if not tts_sent and response_builder.strip():
             # Set timestamp when sending to TTS
             self.llm_send_to_tts_timestamp.value = time.time()
             
             # Send the complete response to TTS
             if self.tts_text_queue is not None:
-                self.tts_text_queue.put(console_response.strip())
-                print(f"\n🎵 Complete TTS sent: '{console_response.strip()[:50]}{'...' if len(console_response.strip()) > 50 else ''}'")
+                self.tts_text_queue.put(response_builder.strip())
+                print(f"\n🎵 Complete TTS sent: '{response_builder.strip()[:50]}{'...' if len(response_builder.strip()) > 50 else ''}'")
             tts_sent = True
         
         # Set completion timestamp
         self.llm_complete_timestamp.value = time.time()
         
-        return console_response, tts_sent
+        return response_builder, tts_sent

@@ -176,7 +176,7 @@ Now update the order based on the user request below."""
             print(f"   Reserved: {torch.cuda.memory_reserved() / (1024*1024):.1f}MB")
         
         # Create a realistic warm-up prompt that matches actual usage
-        warmup_prompt = f"{self.instructions_and_menu}\n\nPrevious Order:\n- (empty)\n\nUser said: hello\n\n<|end|>\n<|assistant|>"
+        warmup_prompt = f"{self.instructions_and_menu}\n\nPrevious Order:\n- 2x Bean Burrito\n- 2x Taco Supreme\n- 2x Crunchwrap Supreme\n- 1x Pink Lemonade\n\nUser said: hello\n\n<|end|>\n<|assistant|>"
         
         warmup_start = time.time()
         warmup_response = self.llm(warmup_prompt, max_tokens=500, temperature=0.0, top_k=1)
@@ -217,10 +217,13 @@ Now update the order based on the user request below."""
         ]
         return items
 
-    def generate_response_stream(self, user_text: str, cancellation=None):
+    def generate_response_stream(self, user_text: str, current_order_summary: str = None, cancellation=None):
         """Generate response with streaming and time-to-first-token metrics"""
+        # Use provided order summary or default to empty
+        order_section = current_order_summary if current_order_summary else "Previous Order:\n- (empty)"
+        
         # Build full prompt with instructions and user input
-        full_prompt = f"{self.instructions_and_menu}\n\nPrevious Order:\n- (empty)\n\nUser said: {user_text}\n\n<|end|>\n<|assistant|>"
+        full_prompt = f"{self.instructions_and_menu}\n\n{order_section}\n\nUser said: {user_text}\n\n<|end|>\n<|assistant|>"
         
         # Add context monitoring for large prompts
         prompt_tokens = len(self.llm.tokenize(full_prompt.encode()))
