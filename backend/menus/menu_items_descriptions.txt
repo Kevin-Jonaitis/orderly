@@ -1,0 +1,41 @@
+Double-Double: Double meat, double cheese
+Cheeseburger: 
+Hamburger: 
+French Fries: 
+Shakes Chocolate: 
+Shakes Strawberry: 
+Shakes Vanilla: 
+Combo #1: Double-Double, French Fries, Medium Drink
+Combo #2: Cheeseburger, French Fries, Medium Drink
+Combo #3: Hamburger, French Fries, Medium Drink
+Coke (Small): 
+Coke (Medium): 
+Coke (Large): 
+Coke (X-Large): 
+Diet Coke (Small): 
+Diet Coke (Medium): 
+Diet Coke (Large): 
+Diet Coke (X-Large): 
+Seven Up (Small): 
+Seven Up (Medium): 
+Seven Up (Large): 
+Seven Up (X-Large): 
+Dr Pepper (Small): 
+Dr Pepper (Medium): 
+Dr Pepper (Large): 
+Dr Pepper (X-Large): 
+Root Beer (Small): 
+Root Beer (Medium): 
+Root Beer (Large): 
+Root Beer (X-Large): 
+Iced Tea (Small): 
+Iced Tea (Medium): 
+Iced Tea (Large): 
+Iced Tea (X-Large): 
+Lemonade (Small): 
+Lemonade (Medium): 
+Lemonade (Large): 
+Lemonade (X-Large): 
+Milk: 
+Hot Cocoa: 
+Coffee: 

@@ -1,0 +1,28 @@
+Taco Supreme: Ground beef, lettuce, cheddar cheese, diced tomatoes, sour cream, taco shell
+Bean Burrito: Flour tortilla, refried beans, cheddar cheese, red sauce
+Cheesy Gordita Crunch: Flatbread, taco shell, seasoned beef, spicy ranch, lettuce, cheddar cheese
+Crunchwrap Supreme: Flour tortilla, ground beef, nacho cheese, crunchy tostada shell, lettuce, tomato, sour cream
+Cheese Quesadilla: Flour tortilla, three-cheese blend, creamy jalapeño sauce
+Pink Lemonade: Lemonade with red dye
+Tropicana Orange Juice: 100% orange juice
+Bottled Water: Purified water
+G2 Gatorade Fruit Punch: Electrolyte drink
+Frozen Baja Blast: Frozen lime soda slush
+Strawberry Skittles Freeze: Frozen drink with Skittles flavor
+Nacho Cheese Dip: Melted cheese
+Guacamole Dip: Mashed avocado with spices
+Pico de Gallo: Chopped tomatoes, onions, cilantro, lime juice
+Avocado Ranch Sauce: Creamy ranch with avocado flavor
+Creamy Jalapeño Sauce: Spicy, creamy jalapeño blend
+Red Sauce: Mild enchilada-style sauce
+Fire Sauce Packet: Very spicy sauce
+Hot Sauce Packet: Spicy sauce
+Mild Sauce Packet: Mildly spicy sauce
+Diablo Sauce Packet: Extra spicy sauce
+Grilled Chicken Taco: Grilled chicken, lettuce, cheddar cheese, soft tortilla
+Double Decker Taco: Crunchy taco with refried beans and soft tortilla
+Loaded Nacho Taco: Seasoned beef, nacho cheese, lettuce, red tortilla strips, soft tortilla
+Spicy Potato Soft Taco: Seasoned potatoes, lettuce, cheddar cheese, chipotle sauce, soft tortilla
+Triple Layer Nachos: Chips, refried beans, red sauce, nacho cheese
+Beefy 5-Layer Burrito: Ground beef, nacho cheese, cheddar cheese, refried beans, sour cream, flour tortilla
+XXL Grilled Stuft Burrito: Ground beef, rice, beans, guacamole, pico de gallo, cheddar cheese, sour cream 

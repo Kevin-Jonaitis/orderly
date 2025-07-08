@@ -83,7 +83,6 @@ tmp/
 
 # Uploads and user content
 backend/uploads/
-backend/menus/
 
 # Output files and generated content
 backend/output/

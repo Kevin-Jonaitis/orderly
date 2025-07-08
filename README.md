@@ -136,6 +136,89 @@ Chicken Quesadilla
 - Works best with clear, high-contrast text
 - Supports multiple text blocks per image
 
+### OpenAI GPT-4 Vision Menu Analysis
+The system includes a combined OCR and parsing script that uses OpenAI's GPT-4 Vision to analyze menu images and extract structured menu data.
+
+**Setup:**
+```bash
+# Install OpenAI dependency (included in requirements.txt)
+pip install openai>=1.0.0
+
+# Create API key file
+echo "your-openai-api-key-here" > backend/open-ai-api-key.txt
+
+# Create menus directory
+mkdir -p backend/menus
+
+# Customer instructions file (created automatically)
+# backend/customer_instructions.txt - Contains LLM instructions
+```
+
+**Usage:**
+1. Place menu images in `backend/menus/` directory
+2. Run the combined OCR and parsing script:
+```bash
+cd backend
+python OCRAndParseMenu.py
+```
+
+**Features:**
+- **AI-Powered Analysis**: Uses GPT-4 Vision for intelligent menu item extraction
+- **Structured Output**: Automatically parses items, descriptions, and prices
+- **Multiple Formats**: Supports JPG, PNG, JPEG images
+- **Batch Processing**: Can process multiple images in sequence
+- **Output Files**: Generates separate files for descriptions and prices
+
+**Example Output:**
+```
+🤖 OCR and Parse Menu - Combined OpenAI GPT-4 Vision Menu Analyzer
+======================================================================
+📁 Found 3 image files:
+  1. in_n_out_menu.jpg
+  2. KFC_menu.jpg
+  3. taco_bell_menu.jpg
+
+🎯 Analyzing: in_n_out_menu.jpg
+🔍 Analyzing menu image: backend/menus/in_n_out_menu.jpg
+==================================================
+🚀 Sending to OpenAI for analysis...
+
+📋 Raw Analysis Output:
+==================================================
+Combo #1: Double-Double, French Fries, and Medium Drink :$7.89
+Combo #2: Cheeseburger, French Fries, and Medium Drink :$6.65
+Double-Double: Double Meat, Double Cheese :$4.19
+Cheeseburger: :$2.95
+French Fries: :$1.95
+==================================================
+
+📋 Parsing menu results...
+📋 Found 5 menu items
+💾 Writing output files...
+✅ Wrote 5 items to menu_items_descriptions.txt
+✅ Wrote 5 items to menu_items_prices.txt
+
+✅ Complete! Check the generated files:
+  - menus/menu_items_descriptions.txt
+  - menus/menu_items_prices.txt
+```
+
+**Generated Files:**
+- `menus/menu_items_descriptions.txt`: Item names with descriptions
+- `menus/menu_items_prices.txt`: Item names with prices
+
+**LLM Integration:**
+The system automatically combines the customer instructions with the parsed menu data:
+- `customer_instructions.txt`: Customer service instructions for the LLM
+- `menus/menu_items_descriptions.txt`: Menu items loaded by the LLM
+
+**Advantages over Basic OCR:**
+- **Intelligent Parsing**: Understands menu structure and relationships
+- **Price Extraction**: Accurately identifies and formats prices
+- **Combo Recognition**: Detects combo meals and their components
+- **Context Awareness**: Distinguishes between menu items and other text
+- **Structured Output**: Ready-to-use format for order processing
+
 ### GPU Setup for LLM Acceleration
 
 ## IMPORTANT: Python Environment for LLM Builds

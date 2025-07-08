@@ -1,0 +1,28 @@
+Taco Supreme: $2.99  
+Bean Burrito: $1.99  
+Cheesy Gordita Crunch: $3.59  
+Crunchwrap Supreme: $3.99  
+Cheese Quesadilla: $2.89  
+Pink Lemonade: $1.89  
+Tropicana Orange Juice: $2.29  
+Bottled Water: $1.49  
+G2 Gatorade Fruit Punch: $2.19  
+Frozen Baja Blast: $2.69  
+Strawberry Skittles Freeze: $2.69  
+Nacho Cheese Dip: $1.00  
+Guacamole Dip: $1.00  
+Pico de Gallo: $0.79  
+Avocado Ranch Sauce: $0.49  
+Creamy Jalapeño Sauce: $0.49  
+Red Sauce: $0.30  
+Fire Sauce Packet: $0.00  
+Hot Sauce Packet: $0.00  
+Mild Sauce Packet: $0.00  
+Diablo Sauce Packet: $0.00  
+Grilled Chicken Taco: $2.19  
+Double Decker Taco: $2.29  
+Loaded Nacho Taco: $1.49  
+Spicy Potato Soft Taco: $1.29  
+Triple Layer Nachos: $1.99  
+Beefy 5-Layer Burrito: $2.49  
+XXL Grilled Stuft Burrito: $4.99  
