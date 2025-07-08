@@ -38,3 +38,6 @@ soundfile
 snac
 aioRTc
 pyaudio
+
+# OpenAI API
+openai>=1.0.0

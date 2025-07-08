@@ -128,3 +128,6 @@ delayed-streams-modeling/
 llama-cpp-python/
 llama.cpp/
 venv312/
+
+# API Keys and sensitive data
+open-ai-api-key.txt

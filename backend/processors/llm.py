@@ -310,7 +310,7 @@ Now update the order based on the user request below."""
         print(f"   Total tokens: {token_count}")
         print(f"   Total time: {total_ms:.0f}ms")
         print(f"   Speed: {tokens_per_second:.1f} tokens/sec")
-        print(f"   Final response: '{accumulated_text.strip()}'")
+        # print(f"   Final response: '{accumulated_text.strip()}'")
 
     def _log_gpu_memory(self, context: str):
         """Log GPU memory usage and KV cache stats"""
