@@ -1,29 +1,29 @@
-Fried Chicken 2 Pc: 
-Fried Chicken 3 Pc: 
-Fried Chicken 4 Pc: 
-Tenders 3 Pc: 
-Tenders 4 Pc: 
-Tenders 5 Pc: 
+Fried Chicken 2 Pc
+Fried Chicken 3 Pc 
+Fried Chicken 4 Pc 
+Tenders 3 Pc 
+Tenders 4 Pc 
+Tenders 5 Pc 
 8 Piece Meal: 3 Tenders, 2 Large Sides, 4 Biscuits
 8 Piece Meal: 3 Sides, 8 Biscuits
 Family Meal 8 Pc Chicken: 2 Large Sides, 4 Biscuits
 Family Meal 12 Pc Chicken: 3 Large Sides, 6 Biscuits
 Family Meal 16 Pc Chicken: 4 Large Sides, 8 Biscuits
-Box Meal Tender Big Box: 
-Box Meal 3 Pc Chicken Box: 
-Sandwich Combo Classic Chicken Sandwich: 
-Sandwich Combo Spicy Chicken Sandwich: 
-Classic Chicken Sandwich: 
-Spicy Chicken Sandwich: 
-2 Chicken Littles: 
-Chicken Little: 
-Mashed Potatoes: 
-Cole Slaw: 
-Sweet Corn: 
-Green Beans: 
-2 Biscuits: 
-Pepsi (Small): 
-Pepsi (Medium): 
-Pepsi (Large): 
-Fried Apple Pie: 
-2 Apple Turnovers: 
+Box Meal Tender Big Box
+Box Meal 3 Pc Chicken Box
+Sandwich Combo Classic Chicken Sandwich
+Sandwich Combo Spicy Chicken Sandwich
+Classic Chicken Sandwich
+Spicy Chicken Sandwich
+2 Chicken Littles
+Chicken Little
+Mashed Potatoes
+Cole Slaw
+Sweet Corn
+Green Beans
+2 Biscuits
+Pepsi (Small)
+Pepsi (Medium)
+Pepsi (Large)
+Fried Apple Pie
+2 Apple Turnovers

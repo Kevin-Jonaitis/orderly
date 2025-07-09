@@ -45,6 +45,12 @@ User said: okay actually can I have a Cheesy Gordita Crunch instead of the burri
     # Test streaming inference with real-time output
     print("\n🌊 Testing streaming inference - First input:")
     print("=" * 60)
+    print("\n🧠 EXACT PROMPT BEING SENT TO LLM (Test 1):")
+    print("=" * 80)
+    print(user_input_one)
+    print("=" * 80)
+    print("🧠 END OF PROMPT")
+    print("=" * 80)
     print("\n🤖 LLM Response (streaming): ", end='', flush=True)
     
     streamed_response_one = ""
@@ -57,6 +63,12 @@ User said: okay actually can I have a Cheesy Gordita Crunch instead of the burri
     # Test second input with streaming
     print("\n\n🌊 Testing streaming inference - Second input:")
     print("=" * 60)
+    print("\n🧠 EXACT PROMPT BEING SENT TO LLM (Test 2):")
+    print("=" * 80)
+    print(user_input_two)
+    print("=" * 80)
+    print("🧠 END OF PROMPT")
+    print("=" * 80)
     print("\n🤖 LLM Response (streaming): ", end='', flush=True)
     
     streamed_response_two = ""
@@ -67,10 +79,21 @@ User said: okay actually can I have a Cheesy Gordita Crunch instead of the burri
     print(f"\n\n✅ Complete response: '{streamed_response_two}'")
 
 
+    print("\n\n🌊 Testing streaming inference - Third input:")
+    print("=" * 60)
+    test_prompt_three = "Can I get a beefy burrito"
+    print("\n🧠 EXACT PROMPT BEING SENT TO LLM (Test 3):")
+    print("=" * 80)
+    print(test_prompt_three)
+    print("=" * 80)
+    print("🧠 END OF PROMPT")
+    print("=" * 80)
+    print("\n🤖 LLM Response (streaming): ", end='', flush=True)
+    
     streamed_response_three = ""
-    for token in reasoner.generate_response_stream("Can I get a beefy burrito", None):
+    for token in reasoner.generate_response_stream(test_prompt_three, None):
         print(token, end='', flush=True)  # Print each token as it arrives
-        streamed_response_two += token
+        streamed_response_three += token
     
     print(f"\n\n✅ Complete response: '{streamed_response_three}'")
 

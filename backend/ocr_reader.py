@@ -152,6 +152,15 @@ def process_menu_with_llm(ocr_text, llm_reasoner):
     # Construct the full prompt
     full_prompt = f"{LLM_INSTRUCTIONS}\n\n User said: {user_text}\n\n<|end|>\n<|assistant|>"
     
+    # Print the exact prompt being sent to the LLM
+    print("\n" + "="*80)
+    print("🧠 EXACT PROMPT BEING SENT TO LLM (OCR Processing):")
+    print("="*80)
+    print(full_prompt)
+    print("="*80)
+    print("🧠 END OF PROMPT")
+    print("="*80 + "\n")
+    
     print(f"📝 Sending to LLM: {user_text[:200]}{'...' if len(user_text) > 200 else ''}")
     print("=" * 50)
     
