@@ -65,11 +65,16 @@ class OrderTracker:
                 
                 # Parse quantity and item name
                 # Pattern: "2x Bean Burrito" -> quantity=2, item="Bean Burrito"
+                # Pattern: "Combo #1" -> quantity=1, item="Combo #1"
                 match = re.match(r'(\d+)x\s+(.+)', item_text)
                 if match:
                     quantity = int(match.group(1))
                     item_name = match.group(2).strip()
                     self.order_items[item_name] = quantity
+                else:
+                    # If no quantity prefix, assume quantity of 1
+                    item_name = item_text
+                    self.order_items[item_name] = 1
     
     def get_order_summary(self):
         """Return a formatted string of the current order"""

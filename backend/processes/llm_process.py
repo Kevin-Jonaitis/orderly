@@ -146,6 +146,12 @@ class LLMProcess(multiprocessing.Process):
         # Parse tokens and handle early TTS sending
         complete_response, tts_sent = self._parse_and_stream_tokens(llm_reasoner, text, current_order_summary)
         
+        # Print the complete response
+        print(f"\n📝 COMPLETE RESPONSE:")
+        print("=" * 50)
+        print(complete_response)
+        print("=" * 50)
+        
         # Parse and update order tracker with complete response
         self.order_tracker.parse_and_update_order(complete_response)
         

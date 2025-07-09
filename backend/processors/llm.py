@@ -57,7 +57,7 @@ class LLMReasoner:
             n_batch=512,         # Smaller batch for stability with large contexts
             n_threads=None,      # Let llama.cpp auto-detect optimal threads
             verbose=True,        # Enable to see GPU layer loading
-			temperature=0.4, # Greedy decoding for maximum speed
+			temperature=0.7, # Greedy decoding for maximum speed
 			top_k=1,
             # use_mlock=True,
             flash_attn=True,     # Enable Flash Attention for speedup
@@ -146,7 +146,7 @@ Now update the order based on the user request below."""
             full_prompt,
             max_tokens=max_response_tokens,
             stop=["<|user|>", "<|end|>", "User said:"],
-            temperature=0.0,
+            temperature=0.7,
             top_k=1,
             stream=True
         )
