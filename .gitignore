@@ -131,3 +131,17 @@ venv312/
 
 # API Keys and sensitive data
 open-ai-api-key.txt
+
+# Debug directories (keep them, just ignore the files inside)
+STT_debug_audio/
+debug_tts_audio/
+audio_debug/
+
+# Version files
+=1.0.0~
+=1.0.0
+=1.7.0~
+
+# Debug files
+debug_chunks_*.pkl
+llama_server.log
