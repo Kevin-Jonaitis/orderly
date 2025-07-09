@@ -53,21 +53,23 @@ function CurrentMenuImage({ currentPage, refreshKey }: { currentPage: Page, refr
   }
 
   return (
-    <div className="mt-3">
-      <h4>Current Menu</h4>
-      <Image 
-        src={`http://localhost:8002/menus/menu.jpg?t=${imageTimestamp}`}
-        alt="Current Menu"
-        fluid
-        className="w-100"
-        style={{ 
-          width: '100%', 
-          height: 'auto',
-          objectFit: 'cover',
-          objectPosition: 'center'
-        }}
-      />
-    </div>
+    <Card className="mt-3">
+      <Card.Body>
+        <Card.Title as="h4">Current Menu</Card.Title>
+        <Image 
+          src={`http://localhost:8002/menus/menu.jpg?t=${imageTimestamp}`}
+          alt="Current Menu"
+          fluid
+          className="w-100"
+          style={{ 
+            width: '100%', 
+            height: 'auto',
+            objectFit: 'cover',
+            objectPosition: 'center'
+          }}
+        />
+      </Card.Body>
+    </Card>
   );
 }
 
@@ -102,16 +104,7 @@ function App() {
       </Navbar>
 
       <Container>
-        {currentPage === 'order' ? (
-          <>
-            {/* Speak Your Order Button - Full Width Above Everything */}
-            <Row className="mb-4">
-              <Col>
-                <WebRTCAudioRecorder />
-              </Col>
-            </Row>
-          </>
-        ) : (
+        {currentPage === 'menu' && (
           <Row>
             <Col lg={8} className="mx-auto">
               <Card>
@@ -133,11 +126,16 @@ function App() {
               <CurrentMenuImage currentPage={currentPage} refreshKey={menuRefreshKey} />
             </Col>
             <Col md={4}>
-              <Card>
+              <Card className="mt-3">
                 <Card.Body>
                   <OrderDisplay />
                 </Card.Body>
               </Card>
+              
+              {/* Speak Your Order Button - Below Current Order */}
+              <div className="mt-3">
+                <WebRTCAudioRecorder />
+              </div>
             </Col>
           </Row>
         </div>

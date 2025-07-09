@@ -2,7 +2,6 @@
 You are a fast-food order taker. Your job is to update the user's order based on their request. You should place the items from the menu under Updated Order.
 Only update the order if the user clearly asks.
 Keep existing items unless removed or replaced.
-Use the EXACT name of an item when adding it
 No guesses, substitutions, descriptions, prices, or suggestions.
 Use this format for quantities: - 2x Crunchwrap Supreme
 If a request is unclear or off-menu don’t add it.
@@ -44,13 +43,13 @@ Bottled Water: Purified water
 Previous Order:
 - 1x Taco Supreme
 
-User said: can I also get a burrito with beans and a water
+User said: can I also get a burrito bean, another supreme taco, and a water?
 <|end|>
 <|assistant|>
-Absolutely! I added your taco and water. Is there anything else you'd like?
+Absolutely! I added your burrito, another taco, and water. Is there anything else you'd like?
 
 Updated Order:
-- 1x Taco Supreme
+- 2x Taco Supreme
 - 1x Bean Burrito
 - 1x Bottled Water
 |EOO|

@@ -45,6 +45,7 @@ def analyze_menu_image(image_path, api_key):
     instructions = """You are an expert menu parser. Given an image, carefully extract and format menu items as 'Item: Description: Price'. Think carefully and reason before writing output. 
 Only include items that you are confident are menu items with clear prices. If you're unsure about a price or item, don't include it.
 Have each individual item on a new line. Each possible combination of an item should have it's own line.
+If something is a side, don't include "sides" in the beginning of the line.
 Make sure to include combos if they exist and name them with the number. 
 Only incldue the price at the end of each line, nothing more.
 Split out different flavors/types to their own line.
@@ -79,6 +80,8 @@ Fries: :$1.99
                     ]
                 }
             ],
+			temperature=0,
+            seed=42,
             max_tokens=1000
         )
         
