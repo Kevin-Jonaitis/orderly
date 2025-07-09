@@ -104,19 +104,12 @@ function App() {
       <Container>
         {currentPage === 'order' ? (
           <>
-            <Row>
-              <Col md={6}>
+            {/* Speak Your Order Button - Full Width Above Everything */}
+            <Row className="mb-4">
+              <Col>
                 <WebRTCAudioRecorder />
               </Col>
-              <Col md={6}>
-                <Card>
-                  <Card.Body>
-                    <OrderDisplay />
-                  </Card.Body>
-                </Card>
-              </Col>
             </Row>
-            <CurrentMenuImage currentPage={currentPage} refreshKey={menuRefreshKey} />
           </>
         ) : (
           <Row>
@@ -130,6 +123,25 @@ function App() {
           </Row>
         )}
       </Container>
+
+      {/* Full Width Layout for Order Page */}
+      {currentPage === 'order' && (
+        <div className="container-fluid px-4">
+          {/* Two Column Layout: Menu (70%) | Order (30%) */}
+          <Row>
+            <Col md={8}>
+              <CurrentMenuImage currentPage={currentPage} refreshKey={menuRefreshKey} />
+            </Col>
+            <Col md={4}>
+              <Card>
+                <Card.Body>
+                  <OrderDisplay />
+                </Card.Body>
+              </Card>
+            </Col>
+          </Row>
+        </div>
+      )}
     </>
   );
 }

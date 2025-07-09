@@ -70,11 +70,11 @@ Previous Order:
 User said: Can I get the chicken sandwich combo?
 <|end|>
 <|assistant|>
-Of course! I added the Sandwich Combo Classic Chicken Sandwich to your order. Is there anything else you'd like?
+Of course! I added the Classic Chicken Sandwich Combo to your order. Is there anything else you'd like?
 
 Updated Order:
 - 1x Family Meal 16 Pc Chicken
-- 1x Sandwich Combo Classic Chicken Sandwich
+- 1x Classic Chicken Sandwich Combo
 |EOO|
 <|end|>
 
