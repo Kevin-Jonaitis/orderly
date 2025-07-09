@@ -17,7 +17,7 @@ import collections
 from av import AudioFrame
 
 # Import the AudioProcessorTrack from its new location
-from processes.audio_processor_track import AudioProcessorTrack
+from processors.audio_processor_track import AudioProcessorTrack
 
 # Global state - exact copy from aiortc server.py
 pcs = set()

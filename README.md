@@ -12,6 +12,7 @@ This system allows customers to place orders through natural voice conversation 
 - **Backend**: FastAPI + WebSocket + WebRTC
 - **Audio Pipeline**: Browser WebRTC → STT (Whisper) → Phi-3 LLM → TTS (Orpheus) → Browser
 - **Order Management**: Real-time order tracking with WebSocket updates
+- **Each pipeline stage (STT, LLM, TTS, Audio) runs in its own process, communicating via multiprocessing queues for robust, real-time streaming.**
 
 ## ✨ Features
 
@@ -112,3 +113,35 @@ npm run dev
 - Backend API: http://localhost:8002
 
 ## 📁 Project Structure
+
+```
+orderly/
+├── backend/
+│   ├── api/                  # FastAPI routes and WebRTC integration
+│   ├── processes/            # Multiprocessing pipeline (STT, LLM, TTS, Audio)
+│   ├── processors/           # Model wrappers (Whisper, Orpheus, LLM, etc.)
+│   ├── utils/                # Utility modules (order tracking, etc.)
+│   ├── menus/                # Uploaded and processed menu images/text
+│   ├── prompts/              # Prompt templates for LLM
+│   ├── uploads/              # Temporary uploads (ignored)
+│   ├── STT_debug_audio/      # Debug audio files (ignored)
+│   ├── logs/                 # Backend logs (ignored)
+│   ├── multiprocess_stt_llm_tts.py  # Main backend entrypoint
+│   ├── OCRAndParseMenu.py    # OCR and menu parsing logic
+│   ├── decoder.py            # Audio decoding utilities
+│   └── requirements.txt      # Backend Python dependencies
+├── frontend/
+│   ├── public/               # Static assets
+│   ├── src/
+│   │   ├── components/       # React components (MenuUpload, OrderDisplay, etc.)
+│   │   ├── hooks/            # Custom React hooks
+│   │   ├── types/            # TypeScript types
+│   │   └── App.tsx           # Main React app
+│   ├── package.json          # Frontend dependencies
+│   ├── vite.config.ts        # Vite config
+│   └── ...                   # Other config files
+├── models/                   # AI models (Phi-3, Orpheus, etc.)
+├── .gitignore
+├── README.md
+└── ... (other dev, venv, and external directories)
+```
