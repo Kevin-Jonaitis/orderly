@@ -167,15 +167,47 @@ def write_output_files(menu_items, menus_dir):
     if len(items_prices) > 5:
         print(f"... and {len(items_prices) - 5} more")
 
+def process_menu_image(image_path):
+    """Process a menu image through the entire OCR pipeline"""
+    print(f"🤖 Processing menu image: {image_path}")
+    print("=" * 50)
+    
+    try:
+        # Load API key
+        api_key = load_api_key()
+        if not api_key:
+            print("❌ Failed to load API key")
+            return False
+        
+        # Analyze the menu image
+        analysis_output = analyze_menu_image(image_path, api_key)
+        if not analysis_output:
+            print("❌ Failed to analyze menu image")
+            return False
+        
+        # Parse the results
+        menu_items = parse_menu_results(analysis_output)
+        if not menu_items:
+            print("❌ No menu items found in analysis")
+            return False
+        
+        # Set up paths
+        backend_dir = Path(__file__).parent
+        menus_dir = backend_dir / "menus"
+        
+        # Write output files
+        write_output_files(menu_items, menus_dir)
+        
+        print("✅ Menu processing completed successfully!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error processing menu image: {e}")
+        return False
+
 def main():
     print("🤖 OCR and Parse Menu - Combined OpenAI GPT-4 Vision Menu Analyzer")
     print("=" * 70)
-    
-    # Load API key
-    api_key = load_api_key()
-    if not api_key:
-        print("❌ Failed to load API key. Please check the file encoding.")
-        return
     
     # Set up paths
     backend_dir = Path(__file__).parent
@@ -202,27 +234,12 @@ def main():
     print(f"\n🎯 Analyzing: {selected_image.name}")
     
     # Step 1: Analyze the image with OpenAI
-    analysis_result = analyze_menu_image(selected_image, api_key)
+    # The process_menu_image function now handles the entire pipeline
+    success = process_menu_image(selected_image)
     
-    if not analysis_result:
-        print("❌ Failed to analyze image")
+    if not success:
+        print("❌ Failed to process menu image")
         return
-    
-    print("\n📋 Raw Analysis Output:")
-    print("=" * 50)
-    print(analysis_result)
-    print("=" * 50)
-    
-    # Step 2: Parse the results
-    menu_items = parse_menu_results(analysis_result)
-    if not menu_items:
-        print("❌ No menu items found in output")
-        return
-    
-    print(f"📋 Found {len(menu_items)} menu items")
-    
-    # Step 3: Write to files
-    write_output_files(menu_items, menus_dir)
     
     print("\n✅ Complete! Check the generated files:")
     print(f"  - {menus_dir}/menu_items_descriptions.txt")

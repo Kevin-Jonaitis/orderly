@@ -73,22 +73,22 @@ async def process_menu(request: dict):
     if not image_path.exists():
         raise HTTPException(status_code=404, detail="Menu image not found")
     
-    # Run OCRAndParseMenu.py with the uploaded image
-    script_path = Path("OCRAndParseMenu.py")
-    if not script_path.exists():
-        raise HTTPException(status_code=500, detail="OCRAndParseMenu.py not found")
-    
-    # Run the OCR script
-    result = subprocess.run([
-        "python", str(script_path), str(image_path)
-    ], capture_output=True, text=True, cwd=Path.cwd())
-    
-    if result.returncode != 0:
-        print(f"❌ [Menu] OCR processing failed: {result.stderr}")
-        raise HTTPException(status_code=500, detail=f"OCR processing failed: {result.stderr}")
-    
-    print(f"📋 [Menu] Successfully processed menu: {filename}")
-    return {"status": "processed", "filename": filename}
+    try:
+        # Import and run the single processing function
+        from OCRAndParseMenu import process_menu_image
+        
+        # Process the menu image
+        success = process_menu_image(str(image_path))
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Menu processing failed")
+        
+        print(f"📋 [Menu] Successfully processed menu: {filename}")
+        return {"status": "processed", "filename": filename}
+        
+    except Exception as e:
+        print(f"❌ [Menu] OCR processing failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
 
 @router.get("/current-menu-image")
 async def get_current_menu_image():

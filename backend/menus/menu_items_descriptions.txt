@@ -1,28 +1,55 @@
-Taco Supreme: Ground beef, lettuce, cheddar cheese, diced tomatoes, sour cream, taco shell
-Bean Burrito: Flour tortilla, refried beans, cheddar cheese, red sauce
-Cheesy Gordita Crunch: Flatbread, taco shell, seasoned beef, spicy ranch, lettuce, cheddar cheese
-Crunchwrap Supreme: Flour tortilla, ground beef, nacho cheese, crunchy tostada shell, lettuce, tomato, sour cream
-Cheese Quesadilla: Flour tortilla, three-cheese blend, creamy jalapeño sauce
-Pink Lemonade: Lemonade with red dye
-Tropicana Orange Juice: 100% orange juice
-Bottled Water: Purified water
-G2 Gatorade Fruit Punch: Electrolyte drink
-Frozen Baja Blast: Frozen lime soda slush
-Strawberry Skittles Freeze: Frozen drink with Skittles flavor
-Nacho Cheese Dip: Melted cheese
-Guacamole Dip: Mashed avocado with spices
-Pico de Gallo: Chopped tomatoes, onions, cilantro, lime juice
-Avocado Ranch Sauce: Creamy ranch with avocado flavor
-Creamy Jalapeño Sauce: Spicy, creamy jalapeño blend
-Red Sauce: Mild enchilada-style sauce
-Fire Sauce Packet: Very spicy sauce
-Hot Sauce Packet: Spicy sauce
-Mild Sauce Packet: Mildly spicy sauce
-Diablo Sauce Packet: Extra spicy sauce
-Grilled Chicken Taco: Grilled chicken, lettuce, cheddar cheese, soft tortilla
-Double Decker Taco: Crunchy taco with refried beans and soft tortilla
-Loaded Nacho Taco: Seasoned beef, nacho cheese, lettuce, red tortilla strips, soft tortilla
-Spicy Potato Soft Taco: Seasoned potatoes, lettuce, cheddar cheese, chipotle sauce, soft tortilla
-Triple Layer Nachos: Chips, refried beans, red sauce, nacho cheese
-Beefy 5-Layer Burrito: Ground beef, nacho cheese, cheddar cheese, refried beans, sour cream, flour tortilla
-XXL Grilled Stuft Burrito: Ground beef, rice, beans, guacamole, pico de gallo, cheddar cheese, sour cream 
+Nachos: 
+Pintos & Cheese or Rice: 
+Cheesy Fiesta Potatoes: 
+Nachos BellGrande: 
+Nachos Supreme: 
+Mexican Pizza: 
+MexiMelt: 
+Chicken or Steak Quesadilla: 
+Chicken or Steak Grilled Taquitos: 
+Crunchwrap Supreme: 
+Spicy Chicken Crunchwrap Supreme: 
+Fiesta Taco Salad: 
+Chicken Fiesta Taco Salad: 
+Zesty Chicken Bowl: 
+Southwest Steak Bowl: 
+Kid's Meal: 2 Tacos, Cinnamon Twists, & Kid's Drink
+Chalupa Baja: 
+Chicken or Steak Chalupa: 
+Double Decker Taco: 
+Gordita Baja: 
+Chicken or Steak Gordita: 
+Frutista Freeze Strawberry: 
+Frutista Freeze Mango Strawberry: 
+Ranchero Chicken Soft Taco: 
+Grilled Steak Taco: 
+Crunchy Taco Supreme: 
+Soft Taco Supreme: 
+Spicy Chicken Soft Taco: 
+Grilled Stuff Burrito: 
+Grilled Stuffed Burrito: 
+Enchirito: 
+Chicken Fiesta Burrito: 
+7-Layer Burrito: 
+Spicy Chicken Burrito: 
+1/2 lb. Beef Combo Burrito: 
+1/2 lb. Beef & Potato Burrito: 
+Cheese Roll-Up: 
+Cinnamon Twists: 
+Triple Layer Nachos: 
+Crunchy Taco: 
+Soft Taco: 
+Bean Burrito: 
+Big Taste Taco: 
+Cheesy Double Beef Burrito: 
+Caramel Apple Empanada: 
+Bean & Cheese Burrito: 
+Combo #1: Burrito Supreme, Taco Supreme
+Combo #2: 2 Chalupas, nachos, regular drink
+Combo #3: Crunchy Taco Supreme, nachos, regular drink
+Combo #4: Mexican Pizza, 2 Taco Supremes
+Combo #5: Nachos BellGrande, Taco Supreme
+Combo #6: 2 Chalupas, nachos, regular drink
+Combo #7: Chicken or Steak Quesadilla, nachos, regular drink
+Combo #8: 3 Crunchy or Soft Tacos
+Combo #9: Crunchwrap Supreme, nachos, regular drink
