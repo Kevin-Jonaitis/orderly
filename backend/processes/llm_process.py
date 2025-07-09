@@ -12,6 +12,7 @@ from datetime import datetime
 import threading
 import time
 import re
+import random
 
 # Add the backend directory to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -35,6 +36,57 @@ class LLMProcess(multiprocessing.Process):
         self.order_update_queue = order_update_queue  # Queue to send order updates to WebSocket
         self.warmup_queue = warmup_queue  # Queue to receive warmup signals
         
+        # Alternative phrases for order-taking responses
+        self.alternative_phrases = [
+            "Got it!",
+            "Sure!",
+            "Let me make that adjustment for you.",
+            "Perfect!",
+            "I'll add that for you.",
+            "No problem!",
+            "You got it!",
+            "I'll get that right away.",
+            "Consider it done!",
+            "I'll update your order.",
+            "That sounds great!",
+            "I'll make that change.",
+            "Got that down!",
+            "I'll add that to your order."
+        ]
+    
+    def replace_overused_phrases(self, text):
+        """Replace 'Certainly!' and 'Absolutely!' with alternative phrases"""
+        # Check if the first sentence starts with these phrases
+        sentences = text.split('.')
+        if sentences:
+            first_sentence = sentences[0].strip()
+            
+            # Check for variations of "Certainly" and "Absolutely"
+            if (first_sentence.startswith("Certainly") or 
+                first_sentence.startswith("Absolutely") or
+                first_sentence.startswith("certainly") or
+                first_sentence.startswith("absolutely")):
+                
+                # Remove the overused phrase
+                if first_sentence.startswith("Certainly"):
+                    first_sentence = first_sentence[10:].strip()  # Remove "Certainly "
+                elif first_sentence.startswith("certainly"):
+                    first_sentence = first_sentence[10:].strip()  # Remove "certainly "
+                elif first_sentence.startswith("Absolutely"):
+                    first_sentence = first_sentence[10:].strip()  # Remove "Absolutely "
+                elif first_sentence.startswith("absolutely"):
+                    first_sentence = first_sentence[10:].strip()  # Remove "absolutely "
+                
+                # Add a random alternative phrase
+                replacement = random.choice(self.alternative_phrases)
+                new_first_sentence = f"{replacement} {first_sentence}"
+                
+                # Reconstruct the text
+                sentences[0] = new_first_sentence
+                return '. '.join(sentences)
+        
+        return text
+    
     def run(self):
         """Main process loop - processes text and generates responses"""
         # Initialize LLM processor - let it crash if it fails
@@ -203,6 +255,8 @@ class LLMProcess(multiprocessing.Process):
                     # Extract text before marker and send to TTS
                     tts_text = tts_response.split("Updated Order:")[0].strip()
                     if tts_text and self.tts_text_queue is not None:
+                        # Replace overused phrases before sending to TTS
+                        tts_text = self.replace_overused_phrases(tts_text)
                         self.tts_text_queue.put(tts_text)
                         print(f"\n🎵 Early TTS sent: '{tts_text[:50]}{'...' if len(tts_text) > 50 else ''}'")
                     tts_sent = True
@@ -214,8 +268,10 @@ class LLMProcess(multiprocessing.Process):
             
             # Send the complete response to TTS
             if self.tts_text_queue is not None:
-                self.tts_text_queue.put(response_builder.strip())
-                print(f"\n🎵 Complete TTS sent: '{response_builder.strip()[:50]}{'...' if len(response_builder.strip()) > 50 else ''}'")
+                # Replace overused phrases before sending to TTS
+                tts_text = self.replace_overused_phrases(response_builder.strip())
+                self.tts_text_queue.put(tts_text)
+                print(f"\n🎵 Complete TTS sent: '{tts_text[:50]}{'...' if len(tts_text) > 50 else ''}'")
             tts_sent = True
         
         # Set completion timestamp
