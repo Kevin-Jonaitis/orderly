@@ -114,25 +114,6 @@ async def get_current_menu_image():
     
     return {"image": "menu.jpg"}
 
-async def order_broadcast_loop():
-    """Simple async loop that waits for order updates and broadcasts them"""
-    global order_update_queue, order_websocket_connections
-    while True:
-        if order_update_queue is None:
-            await asyncio.sleep(0.1)
-            continue
-        # Wait for order data from the queue (blocking, but yields control)
-        order_data = await asyncio.to_thread(order_update_queue.get)
-        # Broadcast to all connected clients
-        to_remove = set()
-        for ws in list(order_websocket_connections):
-            try:
-                await ws.send_text(json.dumps(order_data))
-            except Exception as e:
-                to_remove.add(ws)
-        for ws in to_remove:
-            order_websocket_connections.discard(ws)
-
 def set_websocket_audio_queue(queue: multiprocessing.Queue):
     """Set the global WebSocket audio queue"""
     global websocket_audio_queue

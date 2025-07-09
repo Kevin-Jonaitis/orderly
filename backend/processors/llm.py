@@ -96,12 +96,7 @@ class LLMReasoner:
             
         
         # Combine instructions and menu with example conversations
-        return f"""{instructions_content}
-
-Menu:
-{menu_content}
-
-Now update the order based on the user request below."""
+        return f"""{instructions_content}"""
 
     async def process_order(self, text: str) -> List[OrderItem]:
         """Simple stub - just return mock items"""
@@ -117,16 +112,7 @@ Now update the order based on the user request below."""
         order_section = current_order_summary if current_order_summary else "Previous Order:\n- (empty)"
         
         # Build full prompt with instructions and user input
-        full_prompt = f"{self.instructions_and_menu}\n\n{order_section}\n\nUser said: {user_text}\n\n<|end|>\n<|assistant|>"
-        
-        # Print the exact prompt being sent to the LLM
-        print("\n" + "="*80)
-        print("🧠 EXACT PROMPT BEING SENT TO LLM:")
-        print("="*80)
-        print(full_prompt)
-        print("="*80)
-        print("🧠 END OF PROMPT")
-        print("="*80 + "\n")
+        full_prompt = f"{self.instructions_and_menu}\n{order_section}\n\nUser said: {user_text}\n\n<|end|>\n<|assistant|>"
         
         # Call the core streaming method with the constructed prompt
         return self.generate_response_stream(full_prompt, cancellation)
@@ -163,7 +149,7 @@ Now update the order based on the user request below."""
         stream = self.llm.create_completion(
             full_prompt,
             max_tokens=max_response_tokens,
-            stop=["<|user|>", "<|end|>", "User said:"],
+            stop=["<|user|>", "<|end|>", "User said:", "|EOO|"],
             temperature=0.0,
             top_k=1,
             stream=True

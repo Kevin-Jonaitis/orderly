@@ -83,8 +83,7 @@ class OrderTracker:
         
         summary = "Previous Order:\n"
         for item_name, quantity in self.order_items.items():
-            price = self.menu_prices.get(item_name, 0.0)
-            summary += f"- {quantity}x {item_name} (${price:.2f} each)\n"
+            summary += f"- {quantity}x {item_name}\n"
         return summary.strip()
     
     def format_order_for_frontend(self) -> Dict[str, Any]:
