@@ -58,12 +58,18 @@ cd orderly
 # Create virtual environment
 python -m venv venv312
 source venv312/bin/activate  # On Windows: venv312\Scripts\activate
+```
 
-# Install Python dependencies
+2. **Install llama-cpp-python with CUDA support:**
+```bash
+# Build llama-cpp-python with CUDA support for GPU acceleration
+CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python
+
+# Install remaining Python dependencies
 pip install -r backend/requirements.txt
 ```
 
-2. **Download AI models:**
+3. **Download AI models:**
 ```bash
 # Create models directory
 mkdir -p models
@@ -75,13 +81,13 @@ mkdir -p models
 # Place orpheus model files in models/ directory
 ```
 
-3. **Setup frontend:**
+4. **Setup frontend:**
 ```bash
 cd frontend
 npm install
 ```
 
-4. **Configure API keys (optional):**
+5. **Configure API keys (optional):**
 ```bash
 # For OpenAI menu analysis (optional)
 echo "your-openai-api-key" > backend/open-ai-api-key.txt
