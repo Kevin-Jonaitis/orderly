@@ -1,15 +1,46 @@
 import re
+import os
 from typing import Dict, List, Any
-
+from multiprocessing.managers import BaseManager
 
 class OrderTracker:
     """Tracks the user's current order by parsing LLM responses"""
     
     def __init__(self):
         self.order_items = {}  # Map from item name to quantity
+        self.menu_prices = {}  # Map from item name to price
+        self.menu_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'test_taco_bell_menu_items_prices.txt')
+    
+    def _load_menu_prices(self):
+        """Load menu prices from the menu file"""
+        self.menu_prices.clear()
+        try:
+            if os.path.exists(self.menu_file_path):
+                with open(self.menu_file_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if ':' in line and '$' in line:
+                            # Parse "Item Name: $X.XX" format
+                            parts = line.split(':')
+                            if len(parts) == 2:
+                                item_name = parts[0].strip()
+                                price_str = parts[1].strip()
+                                # Extract price from "$X.XX" format
+                                price_match = re.search(r'\$(\d+\.\d+)', price_str)
+                                if price_match:
+                                    price = float(price_match.group(1))
+                                    self.menu_prices[item_name] = price
+                print(f"📋 Loaded {len(self.menu_prices)} menu items with prices")
+            else:
+                print(f"⚠️ Menu file not found: {self.menu_file_path}")
+        except Exception as e:
+            print(f"❌ Error loading menu prices: {e}")
     
     def parse_and_update_order(self, response_text):
         """Parse response text and update the order items"""
+        # Re-read menu prices in case the file has been updated
+        self._load_menu_prices()
+        
         # Look for "Updated Order:" section
         if "Updated Order:" not in response_text:
             return
@@ -47,7 +78,8 @@ class OrderTracker:
         
         summary = "Previous Order:\n"
         for item_name, quantity in self.order_items.items():
-            summary += f"- {quantity}x {item_name}\n"
+            price = self.menu_prices.get(item_name, 0.0)
+            summary += f"- {quantity}x {item_name} (${price:.2f} each)\n"
         return summary.strip()
     
     def format_order_for_frontend(self) -> Dict[str, Any]:
@@ -59,11 +91,14 @@ class OrderTracker:
         total = 0
         
         for item_name, quantity in self.order_items.items():
-            # Create item object (using placeholder price for now)
+            # Get actual price from menu, fallback to 0.0 if not found
+            price = self.menu_prices.get(item_name, 0.0)
+            
+            # Create item object with actual price
             item = {
                 "id": f"item_{len(items)}",
                 "name": item_name,
-                "price": 8.99,  # Placeholder price
+                "price": price,
                 "quantity": quantity
             }
             items.append(item)
@@ -73,4 +108,11 @@ class OrderTracker:
     
     def clear_order(self):
         """Clear the current order"""
-        self.order_items.clear() 
+        self.order_items.clear()
+
+# Create a custom manager class that registers OrderTracker
+class OrderTrackerManager(BaseManager):
+    pass
+
+# Register the OrderTracker class with our custom manager
+OrderTrackerManager.register('OrderTracker', OrderTracker) 
