@@ -1,60 +1,29 @@
-Nachos: 
-Pintos & Cheese: 
-Cheesy Fiesta Potatoes: 
-Nachos BellGrande: 
-Nachos Supreme: 
-Mexican Pizza: 
-MexiMelt: 
-Chicken or Steak Quesadilla: 
-Chicken or Steak Grilled Taquitos: 
-Crunchwrap Supreme: 
-Spicy Chicken Crunchwrap Supreme: 
-Fiesta Taco Salad: 
-Chicken Fiesta Taco Salad: 
-Zesty Chicken Bowl: 
-Southwest Steak Bowl: 
-Baja Chalupa: 
-Baja Chicken Chalupa: 
-Nacho Cheese Chalupa: 
-Nacho Cheese Gordita: 
-Double Decker Taco: 
-Gordita Baja: 
-Gordita Supreme: 
-Strawberry Fruitista Freeze: 
-Mango Strawberry Fruitista Freeze: 
-Rancho Chicken Soft Taco: 
-Grilled Steak Taco: 
-Crunchy Taco Supreme: 
-Soft Taco Supreme: 
-Spicy Chicken Soft Taco: 
-Grilled Stuft Burrito: 
-Enchirito: 
-Chicken Fiesta Burrito: 
-7-Layer Burrito: 
-Spicy Chicken Burrito: 
-1/2 lb. Beef Combo Burrito: 
-1/2 lb. Beef & Potato Burrito: 
-Cheese Roll-Up: 
-Cinnamon Twists: 
-Triple Layer Nachos: 
-Crunchy Taco: 
-Soft Taco: 
-Bean Burrito: 
-Big Taste Taco: 
-Cheesy Double Beef Burrito: 
-Caramel Apple Empanada: 
-1/2 lb. Cheesy Bean & Rice Burrito: 
-Combo #1: Burrito Supreme, Taco Supreme
-Combo #2: 2 Chalupas, Bottle Water
-Combo #2: 2 Chalupas, Regular Drink
-Combo #2: 2 Chalupas, Ice-Tea
-Combo #3: Grilled Stuft Burrito, Nachos
-Combo #3: Grilled Stuft Burrito, Regular Drink
-Combo #3: Grilled Stuft Burrito, Ice-Tea
-Combo #4: Mexican Pizza, 2 Taco Supreme
-Combo #5: Nachos BellGrande, Taco Supreme
-Combo #6: Chicken or Steak Quesadilla, Regular Drink
-Combo #7: 3 Crunchy or Soft Tacos, Regular Drink
-Combo #8: 3 Crunchy or Soft Tacos, Regular Drink
-Combo #9: Crunchwrap Supreme, Regular Drink
-Combo #10: Grande Meal 10 Tacos
+Fried Chicken 2 Pc: 
+Fried Chicken 3 Pc: 
+Fried Chicken 4 Pc: 
+Tenders 3 Pc: 
+Tenders 4 Pc: 
+Tenders 5 Pc: 
+8 Piece Meal: 3 Tenders, 2 Large Sides, 4 Biscuits
+8 Piece Meal: 3 Sides, 8 Biscuits
+Family Meal 8 Pc Chicken: 2 Large Sides, 4 Biscuits
+Family Meal 12 Pc Chicken: 3 Large Sides, 6 Biscuits
+Family Meal 16 Pc Chicken: 4 Large Sides, 8 Biscuits
+Box Meal Tender Big Box: 
+Box Meal 3 Pc Chicken Box: 
+Sandwich Combo Classic Chicken Sandwich: 
+Sandwich Combo Spicy Chicken Sandwich: 
+Classic Chicken Sandwich: 
+Spicy Chicken Sandwich: 
+2 Chicken Littles: 
+Chicken Little: 
+Mashed Potatoes: 
+Cole Slaw: 
+Sweet Corn: 
+Green Beans: 
+2 Biscuits: 
+Pepsi (Small): 
+Pepsi (Medium): 
+Pepsi (Large): 
+Fried Apple Pie: 
+2 Apple Turnovers: 

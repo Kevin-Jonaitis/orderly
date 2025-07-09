@@ -1,60 +1,29 @@
-Nachos: $0.99
-Pintos & Cheese: $0.99
-Cheesy Fiesta Potatoes: $0.99
-Nachos BellGrande: $3.09
-Nachos Supreme: $2.19
-Mexican Pizza: $3.29
-MexiMelt: $1.79
-Chicken or Steak Quesadilla: $2.99
-Chicken or Steak Grilled Taquitos: $2.99
-Crunchwrap Supreme: $2.89
-Spicy Chicken Crunchwrap Supreme: $1.29
-Fiesta Taco Salad: $3.89
-Chicken Fiesta Taco Salad: $4.19
-Zesty Chicken Bowl: $3.99
-Southwest Steak Bowl: $3.99
-Baja Chalupa: $1.89
-Baja Chicken Chalupa: $1.89
-Nacho Cheese Chalupa: $1.89
-Nacho Cheese Gordita: $1.89
-Double Decker Taco: $1.89
-Gordita Baja: $2.09
-Gordita Supreme: $2.09
-Strawberry Fruitista Freeze: $2.29
-Mango Strawberry Fruitista Freeze: $2.29
-Rancho Chicken Soft Taco: $1.89
-Grilled Steak Taco: $1.99
-Crunchy Taco Supreme: $1.79
-Soft Taco Supreme: $1.79
-Spicy Chicken Soft Taco: $1.29
-Grilled Stuft Burrito: $2.99
-Enchirito: $1.89
-Chicken Fiesta Burrito: $2.49
-7-Layer Burrito: $2.09
-Spicy Chicken Burrito: $1.49
-1/2 lb. Beef Combo Burrito: $1.99
-1/2 lb. Beef & Potato Burrito: $1.59
-Cheese Roll-Up: $0.79
-Cinnamon Twists: $0.79
-Triple Layer Nachos: $0.79
-Crunchy Taco: $0.79
-Soft Taco: $0.79
-Bean Burrito: $0.79
-Big Taste Taco: $1.29
-Cheesy Double Beef Burrito: $0.99
-Caramel Apple Empanada: $0.99
-1/2 lb. Cheesy Bean & Rice Burrito: $0.99
-Combo #1: $5.39
-Combo #2: $6.29
-Combo #2: $4.69
-Combo #2: $6.69
-Combo #3: $6.29
-Combo #3: $4.69
-Combo #3: $6.69
-Combo #4: $7.39
-Combo #5: $6.59
-Combo #6: $4.79
-Combo #7: $4.29
-Combo #8: $7.39
-Combo #9: $4.49
-Combo #10: $8.69
+Fried Chicken 2 Pc: $6.49
+Fried Chicken 3 Pc: $8.49
+Fried Chicken 4 Pc: $10.49
+Tenders 3 Pc: $6.49
+Tenders 4 Pc: $8.49
+Tenders 5 Pc: $10.49
+8 Piece Meal: $24.99
+8 Piece Meal: $24.99
+Family Meal 8 Pc Chicken: $24.99
+Family Meal 12 Pc Chicken: $32.99
+Family Meal 16 Pc Chicken: $42.99
+Box Meal Tender Big Box: $10.49
+Box Meal 3 Pc Chicken Box: $8.99
+Sandwich Combo Classic Chicken Sandwich: $6.99
+Sandwich Combo Spicy Chicken Sandwich: $6.99
+Classic Chicken Sandwich: $3.99
+Spicy Chicken Sandwich: $3.99
+2 Chicken Littles: $4.99
+Chicken Little: $1.29
+Mashed Potatoes: $4.29
+Cole Slaw: $4.29
+Sweet Corn: $4.29
+Green Beans: $4.29
+2 Biscuits: $4.29
+Pepsi (Small): $1.99
+Pepsi (Medium): $2.29
+Pepsi (Large): $2.49
+Fried Apple Pie: $1.99
+2 Apple Turnovers: $3.99

@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { Button, Form, Alert, Card, Stack, Container, Spinner } from 'react-bootstrap';
 
-export function MenuUpload() {
+interface MenuUploadProps {
+  onMenuUploaded?: () => void;
+}
+
+export function MenuUpload({ onMenuUploaded }: MenuUploadProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -66,6 +70,11 @@ export function MenuUpload() {
       // Reset file input
       const fileInput = document.getElementById('file-input') as HTMLInputElement;
       if (fileInput) fileInput.value = '';
+
+      // Notify parent component that menu was uploaded
+      if (onMenuUploaded) {
+        onMenuUploaded();
+      }
 
     } catch (error) {
       setUploadMessage(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);

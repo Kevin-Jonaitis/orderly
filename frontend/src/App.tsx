@@ -6,26 +6,40 @@ import { MenuUpload } from './components/MenuUpload';
 
 type Page = 'order' | 'menu';
 
-function CurrentMenuImage() {
+function CurrentMenuImage({ currentPage, refreshKey }: { currentPage: Page, refreshKey: number }) {
   const [hasImage, setHasImage] = useState<boolean>(false);
+  const [imageTimestamp, setImageTimestamp] = useState<number>(Date.now());
 
   useEffect(() => {
     const checkMenuImage = async () => {
       try {
         const response = await fetch('http://localhost:8002/api/current-menu-image');
         const data = await response.json();
-        setHasImage(data.image !== null);
+        const newHasImage = data.image !== null;
+        setHasImage(newHasImage);
+        // Update timestamp to force image refresh
+        if (newHasImage) {
+          setImageTimestamp(Date.now());
+        }
       } catch (error) {
         console.error('Failed to check menu image:', error);
         setHasImage(false);
       }
     };
 
-    checkMenuImage();
-    // Refresh every 5 seconds to check for updates
-    const interval = setInterval(checkMenuImage, 5000);
+    // Check immediately when page changes to 'order' or refreshKey changes
+    if (currentPage === 'order') {
+      checkMenuImage();
+    }
+    
+    // Refresh every 5 seconds to check for updates (only when on order page)
+    const interval = setInterval(() => {
+      if (currentPage === 'order') {
+        checkMenuImage();
+      }
+    }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [currentPage, refreshKey]);
 
   if (!hasImage) {
     return (
@@ -42,7 +56,7 @@ function CurrentMenuImage() {
     <div className="mt-3">
       <h4>Current Menu</h4>
       <Image 
-        src="http://localhost:8002/menus/menu.jpg" 
+        src={`http://localhost:8002/menus/menu.jpg?t=${imageTimestamp}`}
         alt="Current Menu"
         fluid
         className="w-100"
@@ -59,6 +73,11 @@ function CurrentMenuImage() {
 
 function App() {
   const [currentPage, setCurrentPage] = useState<Page>('order');
+  const [menuRefreshKey, setMenuRefreshKey] = useState<number>(0);
+
+  const handleMenuUploaded = () => {
+    setMenuRefreshKey(prev => prev + 1);
+  };
 
   return (
     <>
@@ -87,11 +106,7 @@ function App() {
           <>
             <Row>
               <Col md={6}>
-                <Card>
-                  <Card.Body>
-                    <WebRTCAudioRecorder />
-                  </Card.Body>
-                </Card>
+                <WebRTCAudioRecorder />
               </Col>
               <Col md={6}>
                 <Card>
@@ -101,14 +116,14 @@ function App() {
                 </Card>
               </Col>
             </Row>
-            <CurrentMenuImage />
+            <CurrentMenuImage currentPage={currentPage} refreshKey={menuRefreshKey} />
           </>
         ) : (
           <Row>
             <Col lg={8} className="mx-auto">
               <Card>
                 <Card.Body>
-                  <MenuUpload />
+                  <MenuUpload onMenuUploaded={handleMenuUploaded} />
                 </Card.Body>
               </Card>
             </Col>
