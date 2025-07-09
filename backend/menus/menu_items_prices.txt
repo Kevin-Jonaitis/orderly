@@ -1,55 +1,60 @@
-Nachos: $1.19
-Pintos & Cheese or Rice: $1.09
-Cheesy Fiesta Potatoes: $1.09
+Nachos: $0.99
+Pintos & Cheese: $0.99
+Cheesy Fiesta Potatoes: $0.99
 Nachos BellGrande: $3.09
-Nachos Supreme: $2.49
-Mexican Pizza: $2.99
-MexiMelt: $1.89
+Nachos Supreme: $2.19
+Mexican Pizza: $3.29
+MexiMelt: $1.79
 Chicken or Steak Quesadilla: $2.99
 Chicken or Steak Grilled Taquitos: $2.99
 Crunchwrap Supreme: $2.89
-Spicy Chicken Crunchwrap Supreme: $2.89
-Fiesta Taco Salad: $3.99
-Chicken Fiesta Taco Salad: $3.99
+Spicy Chicken Crunchwrap Supreme: $1.29
+Fiesta Taco Salad: $3.89
+Chicken Fiesta Taco Salad: $4.19
 Zesty Chicken Bowl: $3.99
 Southwest Steak Bowl: $3.99
-Kid's Meal: $3.49
-Chalupa Baja: $1.89
-Chicken or Steak Chalupa: $2.29
-Double Decker Taco: $1.29
-Gordita Baja: $1.89
-Chicken or Steak Gordita: $2.29
-Frutista Freeze Strawberry: $2.19
-Frutista Freeze Mango Strawberry: $2.19
-Ranchero Chicken Soft Taco: $1.89
-Grilled Steak Taco: $1.79
-Crunchy Taco Supreme: $1.39
-Soft Taco Supreme: $1.49
+Baja Chalupa: $1.89
+Baja Chicken Chalupa: $1.89
+Nacho Cheese Chalupa: $1.89
+Nacho Cheese Gordita: $1.89
+Double Decker Taco: $1.89
+Gordita Baja: $2.09
+Gordita Supreme: $2.09
+Strawberry Fruitista Freeze: $2.29
+Mango Strawberry Fruitista Freeze: $2.29
+Rancho Chicken Soft Taco: $1.89
+Grilled Steak Taco: $1.99
+Crunchy Taco Supreme: $1.79
+Soft Taco Supreme: $1.79
 Spicy Chicken Soft Taco: $1.29
-Grilled Stuff Burrito: $2.99
-Grilled Stuffed Burrito: $4.19
+Grilled Stuft Burrito: $2.99
 Enchirito: $1.89
-Chicken Fiesta Burrito: $2.79
-7-Layer Burrito: $2.49
-Spicy Chicken Burrito: $1.99
-1/2 lb. Beef Combo Burrito: $1.49
+Chicken Fiesta Burrito: $2.49
+7-Layer Burrito: $2.09
+Spicy Chicken Burrito: $1.49
+1/2 lb. Beef Combo Burrito: $1.99
 1/2 lb. Beef & Potato Burrito: $1.59
 Cheese Roll-Up: $0.79
 Cinnamon Twists: $0.79
 Triple Layer Nachos: $0.79
 Crunchy Taco: $0.79
-Soft Taco: $0.89
-Bean Burrito: $0.99
+Soft Taco: $0.79
+Bean Burrito: $0.79
 Big Taste Taco: $1.29
-Cheesy Double Beef Burrito: $0.89
-Caramel Apple Empanada: $0.89
-Bean & Cheese Burrito: $1.29
+Cheesy Double Beef Burrito: $0.99
+Caramel Apple Empanada: $0.99
+1/2 lb. Cheesy Bean & Rice Burrito: $0.99
 Combo #1: $5.39
-Combo #2: $6.99
-Combo #3: $5.59
+Combo #2: $6.29
+Combo #2: $4.69
+Combo #2: $6.69
+Combo #3: $6.29
+Combo #3: $4.69
+Combo #3: $6.69
 Combo #4: $7.39
 Combo #5: $6.59
-Combo #6: $6.79
-Combo #7: $6.79
-Combo #8: $8.00
-Combo #9: $6.99
+Combo #6: $4.79
+Combo #7: $4.29
+Combo #8: $7.39
+Combo #9: $4.49
+Combo #10: $8.69

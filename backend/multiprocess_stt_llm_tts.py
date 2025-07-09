@@ -84,7 +84,7 @@ def keyboard_listener(manual_speech_end_timestamp, manual_audio_heard_timestamp,
         print("⌨️  Manual timing stopped")
         pass
 
-def start_webrtc_server(webrtc_audio_queue, audio_output_websocket_queue, stt_warmup_flag, order_tracker, order_update_queue):
+def start_webrtc_server(webrtc_audio_queue, audio_output_websocket_queue, stt_warmup_flag, order_tracker, order_update_queue, warmup_queue):
     """Start WebRTC server in a separate thread"""
     def run_server():
         app = FastAPI(title="WebRTC Audio Server")
@@ -107,6 +107,10 @@ def start_webrtc_server(webrtc_audio_queue, audio_output_websocket_queue, stt_wa
         # Set up order update queue for WebSocket routes
         from api.routes import set_order_update_queue
         set_order_update_queue(order_update_queue)
+        
+        # Set up warmup queue for menu processing routes
+        from api.routes import set_warmup_queue
+        set_warmup_queue(warmup_queue)
         
         # Add static file serving for menu images
         from fastapi.staticfiles import StaticFiles
@@ -153,6 +157,7 @@ def main():
     webrtc_audio_queue = multiprocessing.Queue(maxsize=1000)  # WebRTC → STT
     audio_output_websocket_queue = multiprocessing.Queue(maxsize=1000)  # AudioProcessor → WebSocket
     order_update_queue = multiprocessing.Queue(maxsize=50)  # LLM → Order WebSocket updates
+    warmup_queue = multiprocessing.Queue(maxsize=10)  # Menu updates → LLM warmup
     
     # Create 7 simple timing variables
     manual_speech_end_timestamp = multiprocessing.Value('d', 0.0)
@@ -174,11 +179,11 @@ def main():
     order_tracker_instance = OrderTracker()
     
     # Start WebRTC + WebSocket server
-    webrtc_thread = start_webrtc_server(webrtc_audio_queue, audio_output_websocket_queue, stt_warmup_flag, order_tracker_instance, order_update_queue)
+    webrtc_thread = start_webrtc_server(webrtc_audio_queue, audio_output_websocket_queue, stt_warmup_flag, order_tracker_instance, order_update_queue, warmup_queue)
     
     # Start processes
     stt_process = STTAudioProcess(text_queue, webrtc_audio_queue, last_text_change_timestamp, manual_speech_end_timestamp, stt_warmup_flag)
-    llm_process = LLMProcess(text_queue, tts_text_queue, llm_start_timestamp, llm_send_to_tts_timestamp, llm_complete_timestamp, order_tracker_instance, order_update_queue)
+    llm_process = LLMProcess(text_queue, tts_text_queue, llm_start_timestamp, llm_send_to_tts_timestamp, llm_complete_timestamp, order_tracker_instance, order_update_queue, warmup_queue)
     tts_process = TTSProcess(tts_text_queue, audio_queue, first_audio_chunk_timestamp)
     audio_process = AudioProcessor(audio_queue, first_audio_chunk_timestamp, audio_output_websocket_queue)
     

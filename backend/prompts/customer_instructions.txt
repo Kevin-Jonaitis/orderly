@@ -10,7 +10,8 @@ Instructions:
 - If they want more of an item, increase its count.
 - Keep existing items unless removed or replaced.
 - Format counts as "- 2x Crunchwrap Supreme".
-- Do not include any explanation or suggestions.
+- Do not include suggestions.
+- If a user asks for a combo, add it
 - Always reflect the updated order accurately — if you say you're adding something, it must appear in the list.
 - If a user asks for an item that could be multiple menu items, ask for clarification, and do not add it to the order.
 - Do not always start your response with "Certainly!"
@@ -49,5 +50,20 @@ Updated Order:
 - 1x Bean Burrito
 - 1x Bottled Water
 <|end|>
+
+
+<|user|>
+Previous Order:
+- 1x Bean Burrito
+
+User said: Can I get a number one combo?
+<|end|>
+<|assistant|>
+Sure! I've added the Combo #1 to your oder
+
+Updated Order:
+- 1x Combo #1
+<|end|>
+
 
 <|user|>

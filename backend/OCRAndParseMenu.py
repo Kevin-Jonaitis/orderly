@@ -48,6 +48,7 @@ Have each individual item on a new line. Each possible combination of an item sh
 Make sure to include combos if they exist and name them with the number. 
 Only incldue the price at the end of each line, nothing more.
 Split out different flavors/types to their own line.
+Do not include numbers in front of the item name.
 
 For example:
 Taco Supreme: Ground beef, lettuce, cheddar cheese, diced tomatoes, sour cream, taco shell :$2.99

@@ -197,9 +197,10 @@ class OrpheusTTS:
             
             if chunk_count == 1 and first_audio_chunk_time is None:
                 first_audio_chunk_time = current_chunk_time - overall_start
-                print(f"Audio chunk {chunk_count}: {time_since_last:.3f}s since start")
+                # print(f"Audio chunk {chunk_count}: {time_since_last:.3f}s since start")
             else:
-                print(f"Audio chunk {chunk_count}: {time_since_last:.3f}s since last chunk")
+                pass
+                # print(f"Audio chunk {chunk_count}: {time_since_last:.3f}s since last chunk")
             
             # Convert to normalized float32 for streaming
             audio_int16 = np.frombuffer(audio_bytes, dtype=np.int16).reshape(1, -1)

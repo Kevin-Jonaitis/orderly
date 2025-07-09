@@ -34,6 +34,9 @@ order_tracker = None  # type: ignore
 # Global order update queue (will be set by main app)
 order_update_queue = None  # type: ignore
 
+# Global warmup queue (will be set by main app)
+warmup_queue = None  # type: ignore
+
 # Global set of active order WebSocket connections
 order_websocket_connections = set()
 
@@ -82,6 +85,17 @@ async def process_menu(request: dict):
         
         if not success:
             raise HTTPException(status_code=500, detail="Menu processing failed")
+        
+        # Send warmup signal to LLM process
+        if warmup_queue:
+            try:
+                print(f"🔥 [Menu] About to send warmup signal to queue: {warmup_queue}")
+                warmup_queue.put("warmup")
+                print("🔥 [Menu] Sent warmup signal to LLM process")
+            except Exception as e:
+                print(f"⚠️ [Menu] Failed to send warmup signal: {e}")
+        else:
+            print("⚠️ [Menu] No warmup queue available")
         
         print(f"📋 [Menu] Successfully processed menu: {filename}")
         return {"status": "processed", "filename": filename}
@@ -133,6 +147,11 @@ def set_order_update_queue(queue):
     """Set the global order update queue"""
     global order_update_queue
     order_update_queue = queue
+
+def set_warmup_queue(queue):
+    """Set the global warmup queue"""
+    global warmup_queue
+    warmup_queue = queue
 
 # WebRTC endpoint is handled in webrtc.py
 
@@ -228,8 +247,8 @@ async def stream_tts_audio(websocket: WebSocket, audio_queue: multiprocessing.Qu
                 }
                 await websocket.send_text(json.dumps(message))
                 
-                if chunk_count % 10 == 0:  # Log every 10 chunks
-                    print(f"🎵 [WebSocket] Sent {chunk_count} audio chunks to {connection_id}")
+                # if chunk_count % 10 == 0:  # Log every 10 chunks
+                #     print(f"🎵 [WebSocket] Sent {chunk_count} audio chunks to {connection_id}")
                 
             except queue.Empty:
                 # No audio data available, use ultra-low latency sleep (1ms like RealtimeVoiceChat)

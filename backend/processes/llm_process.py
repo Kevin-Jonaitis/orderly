@@ -22,7 +22,7 @@ from utils.order_tracker import OrderTracker
 class LLMProcess(multiprocessing.Process):
     """Process that handles LLM text processing and response generation"""
     
-    def __init__(self, text_queue, tts_text_queue, llm_start_timestamp, llm_send_to_tts_timestamp, llm_complete_timestamp, order_tracker=None, order_update_queue=None):
+    def __init__(self, text_queue, tts_text_queue, llm_start_timestamp, llm_send_to_tts_timestamp, llm_complete_timestamp, order_tracker=None, order_update_queue=None, warmup_queue=None):
         super().__init__()
         self.text_queue = text_queue
         self.tts_text_queue = tts_text_queue  # Queue to send complete responses to TTS
@@ -33,6 +33,7 @@ class LLMProcess(multiprocessing.Process):
         # Use provided order tracker if provided, otherwise create a new one
         self.order_tracker = order_tracker if order_tracker else OrderTracker()
         self.order_update_queue = order_update_queue  # Queue to send order updates to WebSocket
+        self.warmup_queue = warmup_queue  # Queue to receive warmup signals
         
     def run(self):
         """Main process loop - processes text and generates responses"""
@@ -41,6 +42,12 @@ class LLMProcess(multiprocessing.Process):
         llm_reasoner = LLMReasoner()
         print("✅ LLM processor loaded")
         print("🧠 LLM process ready for text input...")
+        
+        # Start warmup monitoring thread
+        if self.warmup_queue:
+            warmup_thread = threading.Thread(target=self._warmup_monitor, args=(llm_reasoner,), daemon=True)
+            warmup_thread.start()
+            print("🔥 [LLM] Warmup monitoring thread started")
         
         # Run async event loop
         asyncio.run(self._process_text_loop(llm_reasoner))
@@ -70,7 +77,11 @@ class LLMProcess(multiprocessing.Process):
         
         while True:
             # Get all available text from STT process - drain the queue
-            current_text = await asyncio.to_thread(self._drain_queue)
+            try:
+                current_text = await asyncio.to_thread(self._drain_queue)
+            except Exception as e:
+                print(f"❌ [LLM] Error draining queue: {e}")
+                current_text = ""
             
             # Text deduplication and processing
             if current_text != last_unique_text:
@@ -101,6 +112,24 @@ class LLMProcess(multiprocessing.Process):
                 )
             else:
                 print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] 🔄 TEXT UNCHANGED: '{current_text}'")
+    
+    def _warmup_monitor(self, llm_reasoner):
+        """Separate thread to monitor for warmup signals"""
+        print("🔥 [LLM] Warmup monitor thread running...")
+        while True:
+            try:
+                # Check for warmup signals (blocking with timeout)
+                warmup_signal = self.warmup_queue.get(timeout=1.0)  # 1 second timeout
+                print(f"🔥 [LLM] Received signal: {warmup_signal}")
+                if warmup_signal == "warmup":
+                    print("🔥 [LLM] Received warmup signal, warming up with new menu...")
+                    llm_reasoner.warmup_with_menu()
+                    print("✅ [LLM] Warmup completed with new menu")
+            except queue.Empty:
+                continue  # No signal, keep monitoring
+            except Exception as e:
+                print(f"❌ [LLM] Error in warmup monitor: {e}")
+                time.sleep(1)  # Wait before retrying
     
     def _stream_response(self, llm_reasoner, text):
         """Stream LLM response to console AND send partial response to TTS early"""
