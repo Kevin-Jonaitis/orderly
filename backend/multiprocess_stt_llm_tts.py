@@ -108,6 +108,13 @@ def start_webrtc_server(webrtc_audio_queue, audio_output_websocket_queue, stt_wa
         from api.routes import set_order_update_queue
         set_order_update_queue(order_update_queue)
         
+        # Add static file serving for menu images
+        from fastapi.staticfiles import StaticFiles
+        import os
+        menus_dir = os.path.join(os.path.dirname(__file__), 'menus')
+        if os.path.exists(menus_dir):
+            app.mount("/menus", StaticFiles(directory=menus_dir), name="menus")
+        
         # Configure CORS for browser access
         from fastapi.middleware.cors import CORSMiddleware
         app.add_middleware(

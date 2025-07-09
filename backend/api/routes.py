@@ -8,9 +8,13 @@ import json
 import multiprocessing
 import queue
 import time
+import os
+import subprocess
+from datetime import datetime
 from typing import Dict, Any
+from pathlib import Path
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 
 # WebRTC functions will be imported from main app setup
@@ -32,6 +36,69 @@ order_update_queue = None  # type: ignore
 
 # Global set of active order WebSocket connections
 order_websocket_connections = set()
+
+# Menu upload and processing endpoints
+@router.post("/upload-menu")
+async def upload_menu(file: UploadFile = File(...)):
+    """Upload a menu image file"""
+    
+    # Create menus directory if it doesn't exist
+    menus_dir = Path("menus")
+    menus_dir.mkdir(exist_ok=True)
+    
+    # Always save as menu.jpg
+    filename = "menu.jpg"
+    file_path = menus_dir / filename
+    
+    # Save uploaded file
+    with open(file_path, "wb") as buffer:
+        content = await file.read()
+        buffer.write(content)
+    
+    print(f"📋 [Menu] Uploaded menu image: {filename}")
+    return {"filename": filename, "status": "uploaded"}
+
+@router.post("/process-menu")
+async def process_menu(request: dict):
+    """Process uploaded menu image with OCR"""
+    
+    filename = request.get("filename")
+    if not filename:
+        raise HTTPException(status_code=400, detail="filename is required")
+    
+    # Ensure menus directory exists
+    menus_dir = Path("menus")
+    image_path = menus_dir / filename
+    
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Menu image not found")
+    
+    # Run OCRAndParseMenu.py with the uploaded image
+    script_path = Path("OCRAndParseMenu.py")
+    if not script_path.exists():
+        raise HTTPException(status_code=500, detail="OCRAndParseMenu.py not found")
+    
+    # Run the OCR script
+    result = subprocess.run([
+        "python", str(script_path), str(image_path)
+    ], capture_output=True, text=True, cwd=Path.cwd())
+    
+    if result.returncode != 0:
+        print(f"❌ [Menu] OCR processing failed: {result.stderr}")
+        raise HTTPException(status_code=500, detail=f"OCR processing failed: {result.stderr}")
+    
+    print(f"📋 [Menu] Successfully processed menu: {filename}")
+    return {"status": "processed", "filename": filename}
+
+@router.get("/current-menu-image")
+async def get_current_menu_image():
+    """Get the current menu image"""
+    # Always return menu.jpg if it exists
+    image_path = Path("menus") / "menu.jpg"
+    if not image_path.exists():
+        return {"image": None}
+    
+    return {"image": "menu.jpg"}
 
 async def order_broadcast_loop():
     """Simple async loop that waits for order updates and broadcasts them"""

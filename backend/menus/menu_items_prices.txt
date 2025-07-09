@@ -1,41 +1,28 @@
-Double-Double: $4.19
-Cheeseburger: $2.95
-Hamburger: $2.65
-French Fries: $1.95
-Shakes Chocolate: $2.50
-Shakes Strawberry: $2.50
-Shakes Vanilla: $2.50
-Combo #1: $7.89
-Combo #2: $6.65
-Combo #3: $6.35
-Coke (Small): $1.65
-Coke (Medium): $1.75
-Coke (Large): $1.95
-Coke (X-Large): $2.15
-Diet Coke (Small): $1.65
-Diet Coke (Medium): $1.75
-Diet Coke (Large): $1.95
-Diet Coke (X-Large): $2.15
-Seven Up (Small): $1.65
-Seven Up (Medium): $1.75
-Seven Up (Large): $1.95
-Seven Up (X-Large): $2.15
-Dr Pepper (Small): $1.65
-Dr Pepper (Medium): $1.75
-Dr Pepper (Large): $1.95
-Dr Pepper (X-Large): $2.15
-Root Beer (Small): $1.65
-Root Beer (Medium): $1.75
-Root Beer (Large): $1.95
-Root Beer (X-Large): $2.15
-Iced Tea (Small): $1.65
-Iced Tea (Medium): $1.75
-Iced Tea (Large): $1.95
-Iced Tea (X-Large): $2.15
-Lemonade (Small): $1.65
-Lemonade (Medium): $1.75
-Lemonade (Large): $1.95
-Lemonade (X-Large): $2.15
-Milk: $0.99
-Hot Cocoa: $1.65
-Coffee: $1.25
+Taco Supreme: $2.99  
+Bean Burrito: $1.99  
+Cheesy Gordita Crunch: $3.59  
+Crunchwrap Supreme: $3.99  
+Cheese Quesadilla: $2.89  
+Pink Lemonade: $1.89  
+Tropicana Orange Juice: $2.29  
+Bottled Water: $1.49  
+G2 Gatorade Fruit Punch: $2.19  
+Frozen Baja Blast: $2.69  
+Strawberry Skittles Freeze: $2.69  
+Nacho Cheese Dip: $1.00  
+Guacamole Dip: $1.00  
+Pico de Gallo: $0.79  
+Avocado Ranch Sauce: $0.49  
+Creamy Jalapeño Sauce: $0.49  
+Red Sauce: $0.30  
+Fire Sauce Packet: $0.00  
+Hot Sauce Packet: $0.00  
+Mild Sauce Packet: $0.00  
+Diablo Sauce Packet: $0.00  
+Grilled Chicken Taco: $2.19  
+Double Decker Taco: $2.29  
+Loaded Nacho Taco: $1.49  
+Spicy Potato Soft Taco: $1.29  
+Triple Layer Nachos: $1.99  
+Beefy 5-Layer Burrito: $2.49  
+XXL Grilled Stuft Burrito: $4.99

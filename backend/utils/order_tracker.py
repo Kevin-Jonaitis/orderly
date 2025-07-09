@@ -9,7 +9,7 @@ class OrderTracker:
     def __init__(self):
         self.order_items = {}  # Map from item name to quantity
         self.menu_prices = {}  # Map from item name to price
-        self.menu_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'test_taco_bell_menu_items_prices.txt')
+        self.menu_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'menus', 'menu_items_prices.txt')
     
     def _load_menu_prices(self):
         """Load menu prices from the menu file"""

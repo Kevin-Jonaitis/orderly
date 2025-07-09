@@ -120,7 +120,7 @@ class LLMReasoner:
         instructions_file = Path("prompts/customer_instructions.txt")
         instructions_content = instructions_file.read_text(encoding='utf-8')
         # menu_file = Path("menus/menu_items_descriptions.txt")
-        menu_file = Path("menus/test_taco_bell_menu_items.txt")
+        menu_file = Path("menus/menu_items_descriptions.txt")
         menu_content = menu_file.read_text(encoding='utf-8')
             
         
