@@ -36,6 +36,17 @@ class OrderTracker:
         except Exception as e:
             print(f"❌ Error loading menu prices: {e}")
     
+    def _clean_item_name(self, item_name: str) -> str:
+        """Clean item name by removing description if present"""
+        # If the item name contains a colon, it likely has a description
+        # Take only the part before the colon
+        if ':' in item_name:
+            # Split on colon and take the first part
+            cleaned_name = item_name.split(':')[0].strip()
+            print(f" Cleaned item name: '{item_name}' -> '{cleaned_name}'")
+            return cleaned_name
+        return item_name
+
     def parse_and_update_order(self, response_text):
         """Parse response text and update the order items"""
         # Re-read menu prices in case the file has been updated
@@ -70,10 +81,14 @@ class OrderTracker:
                 if match:
                     quantity = int(match.group(1))
                     item_name = match.group(2).strip()
+                    # Clean the item name to remove descriptions
+                    item_name = self._clean_item_name(item_name)
                     self.order_items[item_name] = quantity
                 else:
                     # If no quantity prefix, assume quantity of 1
                     item_name = item_text
+                    # Clean the item name to remove descriptions
+                    item_name = self._clean_item_name(item_name)
                     self.order_items[item_name] = 1
     
     def get_order_summary(self):
