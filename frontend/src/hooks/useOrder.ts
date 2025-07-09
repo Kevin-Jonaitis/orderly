@@ -52,14 +52,18 @@ export function useOrder() {
     const ws = new WebSocket('ws://localhost:8002/api/ws/order');
     
     ws.onopen = () => {
+      console.log('📋 [Frontend] WebSocket connected to order endpoint');
       websocketRef.current = ws;
       setIsConnected(true);
     };
 
     ws.onmessage = (event) => {
+      console.log('📋 [Frontend] Received WebSocket message:', event.data);
       try {
         const orderData = JSON.parse(event.data);
+        console.log('📋 [Frontend] Parsed order data:', orderData);
         const processedOrder = processOrderData(orderData);
+        console.log('📋 [Frontend] Setting order state:', processedOrder);
         setOrder(processedOrder);
         setIsLoading(false);
       } catch (error) {
@@ -68,11 +72,12 @@ export function useOrder() {
     };
 
     ws.onclose = (event) => {
+      console.log('📋 [Frontend] WebSocket closed:', event.code, event.reason);
       setIsConnected(false);
     };
 
     ws.onerror = (error) => {
-      console.error('Order WebSocket error:', error);
+      console.error('📋 [Frontend] Order WebSocket error:', error);
       setIsConnected(false);
       fetchOrder();
     };

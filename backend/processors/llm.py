@@ -96,7 +96,9 @@ class LLMReasoner:
             
         
         # Combine instructions and menu with example conversations
-        return f"""{instructions_content}"""
+        return f"""{instructions_content}
+		Menu:
+		{menu_content}"""
 
     async def process_order(self, text: str) -> List[OrderItem]:
         """Simple stub - just return mock items"""

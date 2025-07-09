@@ -287,22 +287,28 @@ async def order_websocket(websocket: WebSocket):
     connection_id = f"order_ws_{int(time.time() * 1000)}"
     print(f"📋 [Order] Client connected to order WebSocket: {connection_id}")
     order_websocket_connections.add(websocket)
+    print(f"📋 [Order] Total connected clients: {len(order_websocket_connections)}")
     try:
         while True:
             # Wait for order data from the queue (blocking, but yields control)
             if order_update_queue is None:
                 raise RuntimeError("order_update_queue must be set before using order WebSocket endpoints.")
+            print(f"📋 [Order] Waiting for order data from queue...")
             order_data = await asyncio.to_thread(order_update_queue.get)
+            print(f"📋 [Order] Received order data from queue: {order_data}")
             # Broadcast to all connected clients
+            print(f"📋 [Order] Broadcasting to {len(order_websocket_connections)} clients")
             for ws in list(order_websocket_connections):
                 try:
                     await ws.send_text(json.dumps(order_data))
+                    print(f"📋 [Order] Successfully sent to client")
                 except Exception as e:
-                    print(e)
+                    print(f"❌ [Order] Error sending to client: {e}")
     except WebSocketDisconnect:
         print(f"📋 [Order] Client disconnected from order WebSocket: {connection_id}")
     except Exception as e:
         print(f"❌ [Order] Error in order WebSocket: {e}")
     finally:
         order_websocket_connections.discard(websocket)
+        print(f"📋 [Order] Client removed, total connected: {len(order_websocket_connections)}")
 

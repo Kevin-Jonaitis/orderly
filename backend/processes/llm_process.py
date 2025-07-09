@@ -153,16 +153,21 @@ class LLMProcess(multiprocessing.Process):
         print("=" * 50)
         
         # Parse and update order tracker with complete response
+        print(f"📋 [Order] Before parsing order tracker state: {self.order_tracker.get_order_summary()}")
         self.order_tracker.parse_and_update_order(complete_response)
+        print(f"📋 [Order] After parsing order tracker state: {self.order_tracker.get_order_summary()}")
         
         # Send order update to WebSocket queue if available
         if self.order_update_queue:
             try:
                 order_data = self.order_tracker.format_order_for_frontend()
+                print(f"📋 [Order] Formatted order data for frontend: {order_data}")
                 self.order_update_queue.put(order_data)
                 print(f"📋 [Order] Sent formatted update to WebSocket queue: {order_data}")
             except Exception as e:
                 print(f"❌ [Order] Error sending update to queue: {e}")
+        else:
+            print("❌ [Order] No order_update_queue available!")
         
         # Print current order summary
         print(f"\n📋 {self.order_tracker.get_order_summary()}")
