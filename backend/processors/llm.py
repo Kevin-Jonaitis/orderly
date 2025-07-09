@@ -53,11 +53,11 @@ class LLMReasoner:
         self.llm = Llama(
             model_path=str(model_path),
             n_gpu_layers=-1,     # Use all GPU layers
-            n_ctx=2048,          # ⚠️ FIXED CONTEXT LENGTH - DO NOT CHANGE
+            n_ctx=4096,          # ⚠️ FIXED CONTEXT LENGTH - DO NOT CHANGE
             n_batch=512,         # Smaller batch for stability with large contexts
             n_threads=None,      # Let llama.cpp auto-detect optimal threads
             verbose=True,        # Enable to see GPU layer loading
-			temperature=0.7, # Greedy decoding for maximum speed
+			temperature=0.0, # Greedy decoding for maximum speed
 			top_k=1,
             # use_mlock=True,
             flash_attn=True,     # Enable Flash Attention for speedup
@@ -119,11 +119,29 @@ Now update the order based on the user request below."""
         # Build full prompt with instructions and user input
         full_prompt = f"{self.instructions_and_menu}\n\n{order_section}\n\nUser said: {user_text}\n\n<|end|>\n<|assistant|>"
         
+        # Print the exact prompt being sent to the LLM
+        print("\n" + "="*80)
+        print("🧠 EXACT PROMPT BEING SENT TO LLM:")
+        print("="*80)
+        print(full_prompt)
+        print("="*80)
+        print("🧠 END OF PROMPT")
+        print("="*80 + "\n")
+        
         # Call the core streaming method with the constructed prompt
         return self.generate_response_stream(full_prompt, cancellation)
 
     def generate_response_stream(self, full_prompt: str, cancellation=None):
         """Generate response with streaming and time-to-first-token metrics"""
+        # Print the exact prompt being sent to the LLM (for direct calls)
+        print("\n" + "="*80)
+        print("🧠 EXACT PROMPT BEING SENT TO LLM (direct call):")
+        print("="*80)
+        print(full_prompt)
+        print("="*80)
+        print("🧠 END OF PROMPT")
+        print("="*80 + "\n")
+        
         # Add context monitoring for large prompts
         prompt_tokens = len(self.llm.tokenize(full_prompt.encode()))
         context_limit = self.llm.n_ctx()
@@ -146,7 +164,7 @@ Now update the order based on the user request below."""
             full_prompt,
             max_tokens=max_response_tokens,
             stop=["<|user|>", "<|end|>", "User said:"],
-            temperature=0.7,
+            temperature=0.0,
             top_k=1,
             stream=True
         )
