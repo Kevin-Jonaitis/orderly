@@ -1,5 +1,12 @@
 # AI Order Taker
 
+https://github.com/user-attachments/assets/b3643b8d-9fab-4ae9-9768-ca443a2dce16
+
+
+https://github.com/user-attachments/assets/2f1602ee-8ee4-421c-ac9d-9a9dd7112df9
+
+
+
 A real-time AI-powered voice order taking system with streaming audio, intelligent menu processing, and live order management.
 
 ## 🎯 Overview
