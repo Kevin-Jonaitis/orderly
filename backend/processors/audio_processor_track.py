@@ -152,9 +152,9 @@ class AudioProcessorTrack(MediaStreamTrack):
         if self.max_samples is not None and len(audio_data) > self.max_samples:
             audio_data = audio_data[-self.max_samples:]
         
-        print(f"[DEBUG] Saving WAV: shape={audio_data.shape}, dtype={audio_data.dtype}, min={audio_data.min()}, max={audio_data.max()}, sample_rate={self.sample_rate}")
-        try:
-            sf.write(filename, audio_data, self.sample_rate, subtype='FLOAT')
-            print(f"💾 [WebRTC] Saved last 5 seconds to {filename} ({len(audio_data)} samples @ {self.sample_rate} Hz)")
-        except Exception as e:
-            print(f"❌ [WebRTC] Failed to save audio: {e}") 
+        # print(f"[DEBUG] Saving WAV: shape={audio_data.shape}, dtype={audio_data.dtype}, min={audio_data.min()}, max={audio_data.max()}, sample_rate={self.sample_rate}")
+        # try:
+        #     sf.write(filename, audio_data, self.sample_rate, subtype='FLOAT')
+        #     print(f"💾 [WebRTC] Saved last 5 seconds to {filename} ({len(audio_data)} samples @ {self.sample_rate} Hz)")
+        # except Exception as e:
+        #     print(f"❌ [WebRTC] Failed to save audio: {e}") 

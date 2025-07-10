@@ -160,10 +160,10 @@ class TTSProcess(Process):
                         time_to_first_audio = (first_audio_time - tts_start_time) * 1000
                         print(f"🎵 [TTS] Time to first audio: {time_to_first_audio:.1f}ms")
                     
-                    # Save debug audio
-                    if debug_audio_chunks:
-                        # Also save full audio
-                        self._save_debug_audio(debug_audio_chunks, sample_rate)
+                    # # Save debug audio
+                    # if debug_audio_chunks:
+                    #     # Also save full audio
+                    #     self._save_debug_audio(debug_audio_chunks, sample_rate)
                 
                 
         except Exception as e:
@@ -172,23 +172,24 @@ class TTSProcess(Process):
             traceback.print_exc()
     
     def _save_debug_audio(self, audio_chunks, sample_rate):
-        """Save debug audio (moved from inline)"""
-        try:
-            flattened_chunks = [chunk.flatten() for chunk in audio_chunks]
-            complete_audio = np.concatenate(flattened_chunks, axis=0)
+        pass
+        # """Save debug audio (moved from inline)"""
+        # try:
+        #     flattened_chunks = [chunk.flatten() for chunk in audio_chunks]
+        #     complete_audio = np.concatenate(flattened_chunks, axis=0)
             
-            if len(complete_audio.shape) > 1:
-                complete_audio = complete_audio.flatten()
+        #     if len(complete_audio.shape) > 1:
+        #         complete_audio = complete_audio.flatten()
             
-            debug_filename = f"debug_tts_audio/debug_tts_audio_{int(time_module.time())}.wav"
-            sf.write(debug_filename, complete_audio, sample_rate, format='WAV', subtype='PCM_16')
-            print(f"🔍 Audio saved to: {debug_filename}")
+        #     debug_filename = f"debug_tts_audio/debug_tts_audio_{int(time_module.time())}.wav"
+        #     sf.write(debug_filename, complete_audio, sample_rate, format='WAV', subtype='PCM_16')
+        #     print(f"🔍 Audio saved to: {debug_filename}")
             
-            # Analyze complete audio
-            total_samples = len(complete_audio)
-            total_duration_ms = (total_samples / sample_rate) * 1000
-            print(f"🔍 Audio duration: {total_duration_ms:.1f}ms ({total_samples} samples)")
+        #     # Analyze complete audio
+        #     total_samples = len(complete_audio)
+        #     total_duration_ms = (total_samples / sample_rate) * 1000
+        #     print(f"🔍 Audio duration: {total_duration_ms:.1f}ms ({total_samples} samples)")
             
-        except Exception as e:
-            print(f"❌ Error saving audio: {e}")
+        # except Exception as e:
+        #     print(f"❌ Error saving audio: {e}")
     

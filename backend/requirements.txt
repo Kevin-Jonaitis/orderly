@@ -41,3 +41,7 @@ pyaudio
 
 # OpenAI API
 openai>=1.0.0
+
+# Fuzzy string matching
+fuzzywuzzy>=0.18.0
+python-Levenshtein>=0.21.0

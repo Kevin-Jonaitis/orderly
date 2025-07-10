@@ -47,13 +47,14 @@ class OrpheusTTS:
         print("✅ CUDA test successful - GPU acceleration enabled")
         
         # Load Orpheus model via llama-cpp-python with GPU acceleration
-        model_path = Path(__file__).parent.parent.parent / "models" / "Orpheus-3b-FT-Q2_K.gguf"
+        # model_path = Path(__file__).parent.parent.parent / "models" / "Orpheus-3b-FT-Q2_K.gguf"
+        model_path = Path(__file__).parent.parent.parent / "models" / "Orpheus-3b-FT-Q4_K_M.gguf"
         if not IS_RELOADER:
             print(f"🔧 Loading Orpheus model: {model_path.name} (GPU-accelerated)")
         
         self.orpheus_llm = Llama(
             model_path=str(model_path),
-            n_ctx=2048,          # Context window
+            n_ctx=4096,          # Context window
             n_batch=512,         # Batch size  
             flash_attn=True,     # Enable Flash Attention
             n_gpu_layers=-1,     # Use all GPU layers for acceleration

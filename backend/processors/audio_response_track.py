@@ -193,11 +193,11 @@ class AudioResponseTrack(MediaStreamTrack):
 
             self.recorded_audio.extend(frame_audio.tolist())
 
-				# Check if it's time to save the recording
-            current_time = time.time()
-            if current_time - self.last_save_time >= self.save_interval:
-                self._save_audio_recording()
-                self.last_save_time = current_time
+			# 	# Check if it's time to save the recording
+            # current_time = time.time()
+            # if current_time - self.last_save_time >= self.save_interval:
+            #     self._save_audio_recording()
+            #     self.last_save_time = current_time
 
             return frame
             
@@ -205,7 +205,7 @@ class AudioResponseTrack(MediaStreamTrack):
             print(f"❌ [AudioResponseTrack] Error in recv(): {e}")
             import traceback
             traceback.print_exc()
-            # Re-raise the exception so the WebRTC stack knows something went wrong
+            # Re-raise the exception so the WebRTC stack knows something `went wrong
             raise
     
     def _save_audio_recording(self):

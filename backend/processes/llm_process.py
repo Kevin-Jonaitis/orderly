@@ -49,7 +49,6 @@ class LLMProcess(multiprocessing.Process):
             "Consider it done!",
             "I'll update your order.",
             "That sounds great!",
-            "I'll make that change.",
             "Got that down!",
             "I'll add that to your order."
         ]
