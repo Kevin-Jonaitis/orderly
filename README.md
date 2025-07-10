@@ -1,8 +1,9 @@
 # AI Order Taker
 
+Demo of menu upload + ordering
 https://github.com/user-attachments/assets/b3643b8d-9fab-4ae9-9768-ca443a2dce16
 
-
+Another demo of ordering with a seperate menu
 https://github.com/user-attachments/assets/2f1602ee-8ee4-421c-ac9d-9a9dd7112df9
 
 
